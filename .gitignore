@@ -1,0 +1,30 @@
+# Vendored third-party sources (fetch per BUILD-NOTES; do not commit)
+/gutenprint-src/
+/cnijfilter2-src/
+
+# Huge diagnostic binaries & experiments
+/capture/
+*.raster
+*.stream
+
+# Printed documents spool (PRIVACY: contains user documents)
+harness/spool_ipp/
+
+# Redundant Canon PPD copies & private-cupsd leftovers
+harness/ppd/
+harness/libexec/
+harness/cache/
+harness/certs/
+harness/spool/
+harness/tmp/
+harness/log/
+harness/etc/
+harness/cupsd-priv
+harness/fg_test.log
+harness/ippeve.log
+harness/ippeve2.log
+
+# Logs & ephemera
+*.log
+/codegraph
+.DS_Store
