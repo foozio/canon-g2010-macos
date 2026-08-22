@@ -124,7 +124,17 @@ test_reports_startup_timeout() {
   assert_contains "$TEST_TMP/timeout/events" "launchctl kickstart -k gui/"
 }
 
+test_desktop_command_delegates_to_single_owner_controller() {
+  local desktop_command="$ROOT/G2010-PrintServer.command"
+  assert_contains "$desktop_command" "harness/printserver-control.sh"
+  assert_contains "$desktop_command" "restart"
+  assert_not_contains "$desktop_command" "nohup"
+  assert_not_contains "$desktop_command" "pkill"
+  assert_not_contains "$desktop_command" "start-printserver.sh"
+}
+
 test_restart_has_one_owner_and_waits_until_ready
 test_refuses_to_kill_unrelated_listener
 test_reports_startup_timeout
+test_desktop_command_delegates_to_single_owner_controller
 echo "PASS: print server lifecycle controller"
