@@ -28,3 +28,9 @@ harness/ippeve2.log
 *.log
 /codegraph
 .DS_Store
+
+# Local tooling & vendored archives
+/.codegraph
+/.omo/
+/cnijfilter2-6.90.tar.gz
+G2010_gutenprint/*.ppd.gz
