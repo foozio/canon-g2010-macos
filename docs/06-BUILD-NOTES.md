@@ -99,8 +99,9 @@ upstream; validated in practice here and by years of Linux use.
 See [02-ARCHITECTURE.md](02-ARCHITECTURE.md) for the design and
 [03-OPERATIONS.md](03-OPERATIONS.md) for the commands. Short version:
 
-1. Start `ippeveprinter` via `harness/start-printserver.sh` (port 8632,
-   `-f application/pdf`, pipeline command hook).
+1. Install and start the launchd-owned runtime with
+   `harness/printserver-control.sh restart` (port 8632,
+   `-f application/pdf`, installed pipeline command hook).
 2. Register the system queue and make it default:
    ```bash
    lpadmin -p G2010IPP -E -v "ipp://localhost:8632/ipp/print" -m everywhere

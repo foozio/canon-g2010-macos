@@ -63,23 +63,23 @@ Each entry: **Symptom → Root cause → Fix**. All of these actually occurred.
 - **Fix**: delete such queues (`lpadmin -x NAME`). The working G2010IPP route
   never exposes user filters to the system scheduler.
 
-## 7. LaunchAgent death spiral (`EX_CONFIG`, hundreds of runs)
+## 7. LaunchAgent death spiral (`EX_CONFIG`, repeated runs)
 
 - **Symptom**: `launchctl print gui/$UID/com.foozio.g2010.printserver` shows
   `runs = 844, last exit code = 78: EX_CONFIG`; later even trivial test agents
   fail to bootstrap (`Input/output error`); server won't auto-start.
-- **Cause**: two compounding issues — (a) a manually-started instance held port
-  8632 so every agent spawn died on bind; (b) the rapid respawn loop wedged the
-  session's launchd domain (possibly interacting with Tahoe's background-task
-  approval for un-notarized agents).
+- **Cause**: the old Desktop command and the `KeepAlive` LaunchAgent both owned
+  process startup. After a restart, they raced for port 8632; the loser exited
+  with `EX_CONFIG`, and repeated launchd failures left no working listener.
 - **Fix**:
   ```bash
-  launchctl bootout gui/$(id -u)/com.foozio.g2010.printserver
+  ~/Downloads/Codes/g2010i/harness/printserver-control.sh restart
   ```
-  then run the server manually (Desktop shortcut). After a **logout/reboot**
-  the domain resets: try `bootstrap` again, approve the item under
-  *System Settings → General → Login Items & Extensions*, and if it still
-  refuses, stay on manual start — printing works identically.
+  The controller atomically unloads the job, removes only a verified orphaned
+  `ippeveprinter`, installs the checked-in LaunchAgent, reloads it, and waits
+  for port 8632. The Desktop command invokes this same path, so there is only
+  one process owner. If macOS asks, allow the item under *System Settings →
+  General → Login Items & Extensions*.
 
 ## 8. Canon IJ Printer Utility hangs at "Please wait"
 

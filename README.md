@@ -16,7 +16,7 @@ server — **no sudo required for operation**, no kernel extensions, no hacks.
 |---|---|
 | **Print** | Any app → choose printer **G2010IPP** (system default). CLI: `lp file.pdf` |
 | **Scan** | `scanimage -d "pixma:04A9183A_0C7A8F" --format=png --resolution 300 > out.png` |
-| **Server down?** | Double-click **`G2010-PrintServer.command`** on the Desktop |
+| **Server down?** | Double-click **`G2010-PrintServer.command`**; it safely resets the launchd-owned server |
 
 ## Documentation index
 
@@ -48,10 +48,11 @@ g2010i/
 ├── README.md                  ← you are here
 ├── docs/                      ← the six documents above
 ├── harness/
-│   ├── start-printserver.sh   ← env-safe launcher (Desktop shortcut & agent use this)
+│   ├── printserver-control.sh ← installs/resets the launchd-owned runtime
+│   ├── start-printserver.sh   ← env-safe runtime launcher template
 │   ├── print-pipeline.sh      ← PDF → raster → Canon stream → USB
-│   ├── spool_ipp/             ← ippeveprinter job spool
 │   └── etc/,log/,…            ← abandoned private-cupsd experiment (kept for reference)
+├── launchd/                   ← checked-in LaunchAgent template
 ├── G2010_gutenprint/
 │   └── stp-bjc-G2000-series.5.3.ppd   ← our PPD (cupsFilter points at ~/gp filter)
 ├── gutenprint-src/            ← Gutenprint 5_3_3 source tree (built into ~/gp)
@@ -66,3 +67,7 @@ g2010i/
 `sane-backends` · `cups` (keg-only: provides `ippeveprinter`) · `libusb`
 
 Build-time only: `autoconf automake libtool pkg-config`
+
+The installed runtime lives outside the privacy-protected Downloads folder at
+`~/Library/Application Support/G2010PrintServer`; launchd logs to
+`~/Library/Logs/G2010PrintServer.log`.

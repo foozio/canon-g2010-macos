@@ -20,9 +20,11 @@ until ready. The Desktop command delegates to that control script and never
 starts a second server itself.
 
 The LaunchAgent definition is checked into the repository and installed into
-`~/Library/LaunchAgents` by the control script. Runtime paths remain explicit,
-matching the existing single-user installation. Startup output and errors are
-written to the existing IPP log so bind or configuration failures are visible.
+`~/Library/LaunchAgents` by the control script. The controller also installs a
+self-contained runtime under `~/Library/Application Support/G2010PrintServer`
+so launchd never needs startup or spool access to the privacy-protected
+Downloads folder. Startup output and errors go to
+`~/Library/Logs/G2010PrintServer.log` so failures remain visible.
 
 ## Failure handling
 

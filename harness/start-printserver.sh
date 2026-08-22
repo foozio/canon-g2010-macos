@@ -5,10 +5,12 @@ export HOME="/Users/foozio"
 export USER="foozio"
 export TMPDIR="${TMPDIR:-/tmp}"
 
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+
 exec /opt/homebrew/opt/cups/bin/ippeveprinter \
   -p 8632 \
-  -c "/Users/foozio/Downloads/Codes/g2010i/harness/print-pipeline.sh" \
-  -d "/Users/foozio/Downloads/Codes/g2010i/harness/spool_ipp" \
+  -c "$SCRIPT_DIR/print-pipeline.sh" \
+  -d "$SCRIPT_DIR/spool" \
   -M Canon \
   -m "G2010 series" \
   -f application/pdf \

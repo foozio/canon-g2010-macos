@@ -2,7 +2,11 @@
 # G2010 standalone print pipeline (no cupsd required)
 # Called by ippeveprinter as: script job-id user title copies options [files...]
 
-PPD="/Users/foozio/Downloads/Codes/g2010i/G2010_gutenprint/stp-bjc-G2000-series.5.3.ppd"
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+PPD="$SCRIPT_DIR/stp-bjc-G2000-series.5.3.ppd"
+if [ ! -f "$PPD" ]; then
+  PPD="$SCRIPT_DIR/../G2010_gutenprint/stp-bjc-G2000-series.5.3.ppd"
+fi
 DEVURI="usb://Canon/G2010%20series?serial=0C7A8F"
 GP_FILTER="/Users/foozio/gp/cupsexec/filter/rastertogutenprint.5.3"
 

@@ -6,8 +6,12 @@ LABEL="${PRINTSERVER_LABEL:-com.foozio.g2010.printserver}"
 PORT="${PRINTSERVER_PORT:-8632}"
 PLIST_SOURCE="${PRINTSERVER_PLIST_SOURCE:-$ROOT/launchd/$LABEL.plist}"
 PLIST_DEST="${PRINTSERVER_PLIST_DEST:-$HOME/Library/LaunchAgents/$LABEL.plist}"
-SERVER_LOG="${PRINTSERVER_LOG:-$ROOT/harness/ippeve.log}"
+SERVER_LOG="${PRINTSERVER_LOG:-$HOME/Library/Logs/G2010PrintServer.log}"
 WAIT_ATTEMPTS="${PRINTSERVER_WAIT_ATTEMPTS:-15}"
+RUNTIME_DIR="${PRINTSERVER_RUNTIME_DIR:-$HOME/Library/Application Support/G2010PrintServer}"
+START_SOURCE="${PRINTSERVER_START_SOURCE:-$ROOT/harness/start-printserver.sh}"
+PIPELINE_SOURCE="${PRINTSERVER_PIPELINE_SOURCE:-$ROOT/harness/print-pipeline.sh}"
+PPD_SOURCE="${PRINTSERVER_PPD_SOURCE:-$ROOT/G2010_gutenprint/stp-bjc-G2000-series.5.3.ppd}"
 
 LAUNCHCTL_BIN="${LAUNCHCTL_BIN:-launchctl}"
 LSOF_BIN="${LSOF_BIN:-lsof}"
@@ -56,6 +60,22 @@ install_agent() {
   plutil -lint "$PLIST_DEST" >/dev/null
 }
 
+install_runtime() {
+  local source
+  for source in "$START_SOURCE" "$PIPELINE_SOURCE" "$PPD_SOURCE"; do
+    [ -f "$source" ] || {
+      echo "ERROR: runtime source not found: $source" >&2
+      return 1
+    }
+  done
+
+  mkdir -p "$RUNTIME_DIR/spool" "$(dirname "$SERVER_LOG")"
+  cp "$START_SOURCE" "$RUNTIME_DIR/start-printserver.sh"
+  cp "$PIPELINE_SOURCE" "$RUNTIME_DIR/print-pipeline.sh"
+  cp "$PPD_SOURCE" "$RUNTIME_DIR/stp-bjc-G2000-series.5.3.ppd"
+  chmod 755 "$RUNTIME_DIR/start-printserver.sh" "$RUNTIME_DIR/print-pipeline.sh"
+}
+
 wait_until_ready() {
   local attempt=1
   while [ "$attempt" -le "$WAIT_ATTEMPTS" ]; do
@@ -77,6 +97,7 @@ wait_until_ready() {
 restart() {
   stop_registered_service
   remove_orphaned_listener || return 1
+  install_runtime || return 1
   install_agent || return 1
   "$LAUNCHCTL_BIN" bootstrap "$DOMAIN" "$PLIST_DEST" || return 1
   "$LAUNCHCTL_BIN" kickstart -k "$SERVICE" || return 1

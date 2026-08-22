@@ -35,22 +35,16 @@ printer wakes from sleep may need one retry.
 
 ## The print server
 
-One instance of `ippeveprinter` must be running for printing to work.
+One launchd-owned instance of `ippeveprinter` must be running for printing to
+work. Do not start `ippeveprinter` or `start-printserver.sh` independently;
+doing so creates competing owners for port 8632.
 
-**Start / restart — pick any:**
+**Start / restart:**
 
 ```bash
-# Option A: double-click on Desktop
+# Double-click on Desktop, or run the same controller in Terminal:
 G2010-PrintServer.command
-
-# Option B: terminal
-pkill -f ippeveprinter; sleep 1
-nohup ~/Downloads/Codes/g2010i/harness/start-printserver.sh \
-      > ~/Downloads/Codes/g2010i/harness/ippeve.log 2>&1 &
-
-# Option C: launchd agent (works only if the Login-Items approval + launchd
-#           domain are healthy — see TROUBLESHOOTING §7)
-launchctl kickstart -k gui/$(id -u)/com.foozio.g2010.printserver
+~/Downloads/Codes/g2010i/harness/printserver-control.sh restart
 ```
 
 **Verify it's alive:**
@@ -58,13 +52,14 @@ launchctl kickstart -k gui/$(id -u)/com.foozio.g2010.printserver
 ```bash
 lsof -iTCP:8632 -sTCP:LISTEN        # expect ippeveprinter LISTENing
 pgrep -fl ippeveprinter
+~/Downloads/Codes/g2010i/harness/printserver-control.sh status
 ```
 
 ## Logs
 
 | Log | Path | Shows |
 |---|---|---|
-| IPP server | `~/Downloads/Codes/g2010i/harness/ippeve.log` | job submissions, client errors |
+| IPP server | `~/Library/Logs/G2010PrintServer.log` | launchd startup, job submissions, client errors |
 | PDF rasterizer | `/tmp/g2010_cg.log` | cgpdftoraster stage |
 | Gutenprint filter | `/tmp/g2010_gp.log` | conversion detail, errors |
 | USB backend | `/tmp/g2010_usb.log` | device open/write/back-channel |
@@ -73,9 +68,10 @@ pgrep -fl ippeveprinter
 ## Post-reboot checklist
 
 1. Printer powered on, USB cable connected.
-2. Server running? `pgrep -fl ippeveprinter`
-   - If **yes** and the LaunchAgent was approved in Login Items → done.
-   - If **no**: double-click `G2010-PrintServer.command`.
+2. Server running? `printserver-control.sh status`
+   - If **yes** → done.
+   - If **no**: double-click `G2010-PrintServer.command`; it unloads stale
+     launchd state, removes only a verified orphan, and reloads one owner.
 3. Test: `echo hello | lp`, watch paper.
 4. If System Settings shows a stale/duplicate printer, remove it; keep only
    **G2010IPP**. Re-add if needed:

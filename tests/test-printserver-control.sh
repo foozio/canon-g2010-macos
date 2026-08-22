@@ -30,6 +30,9 @@ make_fixture() {
   : > "$dir/events"
   : > "$dir/server.log"
   printf '<plist><dict/></plist>\n' > "$dir/source.plist"
+  printf '#!/bin/bash\n' > "$dir/start-source.sh"
+  printf '#!/bin/bash\n' > "$dir/pipeline-source.sh"
+  printf '*PPD-Adobe: "4.3"\n' > "$dir/source.ppd"
 
   cat > "$dir/bin/launchctl" <<'EOF'
 #!/bin/bash
@@ -84,6 +87,10 @@ EOF
   KILL_BIN="$dir/bin/kill" \
   PRINTSERVER_PLIST_SOURCE="$dir/source.plist" \
   PRINTSERVER_LOG="$dir/server.log" \
+  PRINTSERVER_RUNTIME_DIR="$dir/runtime" \
+  PRINTSERVER_START_SOURCE="$dir/start-source.sh" \
+  PRINTSERVER_PIPELINE_SOURCE="$dir/pipeline-source.sh" \
+  PRINTSERVER_PPD_SOURCE="$dir/source.ppd" \
   PRINTSERVER_WAIT_ATTEMPTS=2 \
   "$CONTROL" restart > "$dir/stdout" 2> "$dir/stderr"
 }
@@ -96,6 +103,9 @@ test_restart_has_one_owner_and_waits_until_ready() {
   assert_contains "$events" "launchctl bootstrap gui/"
   assert_contains "$events" "launchctl kickstart -k gui/"
   assert_contains "$TEST_TMP/success/stdout" "ready on port 8632"
+  [ -x "$TEST_TMP/success/runtime/start-printserver.sh" ] || fail "runtime launcher was not installed"
+  [ -x "$TEST_TMP/success/runtime/print-pipeline.sh" ] || fail "runtime pipeline was not installed"
+  [ -f "$TEST_TMP/success/runtime/stp-bjc-G2000-series.5.3.ppd" ] || fail "runtime PPD was not installed"
 
   local bootout kill bootstrap kickstart
   bootout=$(grep -n 'launchctl bootout' "$events" | cut -d: -f1)
@@ -133,8 +143,16 @@ test_desktop_command_delegates_to_single_owner_controller() {
   assert_not_contains "$desktop_command" "start-printserver.sh"
 }
 
+test_launchagent_runtime_is_outside_downloads() {
+  local plist="$ROOT/launchd/com.foozio.g2010.printserver.plist"
+  assert_not_contains "$plist" "/Downloads/"
+  assert_contains "$plist" "/Library/Application Support/G2010PrintServer/"
+  assert_contains "$plist" "/Library/Logs/G2010PrintServer.log"
+}
+
 test_restart_has_one_owner_and_waits_until_ready
 test_refuses_to_kill_unrelated_listener
 test_reports_startup_timeout
 test_desktop_command_delegates_to_single_owner_controller
+test_launchagent_runtime_is_outside_downloads
 echo "PASS: print server lifecycle controller"

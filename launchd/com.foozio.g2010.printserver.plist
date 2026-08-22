@@ -7,7 +7,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>/Users/foozio/Downloads/Codes/g2010i/harness/start-printserver.sh</string>
+    <string>/Users/foozio/Library/Application Support/G2010PrintServer/start-printserver.sh</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
@@ -16,8 +16,8 @@
   <key>ThrottleInterval</key>
   <integer>10</integer>
   <key>StandardOutPath</key>
-  <string>/Users/foozio/Downloads/Codes/g2010i/harness/ippeve.log</string>
+  <string>/Users/foozio/Library/Logs/G2010PrintServer.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/foozio/Downloads/Codes/g2010i/harness/ippeve.log</string>
+  <string>/Users/foozio/Library/Logs/G2010PrintServer.log</string>
 </dict>
 </plist>
