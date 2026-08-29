@@ -1,0 +1,81 @@
+name: Bug report
+description: Something isn't working — printing, scanning, the server, or the Manager app.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please fill this in — it makes triage much faster.
+        For security vulnerabilities, do NOT open an issue; see SECURITY.md.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: A clear, concise description of the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps that reliably trigger the issue.
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Print path
+        - Scan path
+        - Print server / lifecycle
+        - Manager app (Swift)
+        - Packaging / DMG
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      description: e.g. macOS 26.6.1 (Apple Silicon)
+      placeholder: macOS 26.x
+    validations:
+      required: true
+  - type: input
+    id: install
+    attributes:
+      label: How did you install?
+      description: DMG release, built from source, or shell-only harness
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / output
+      description: |
+        Paste relevant lines from `~/Library/Logs/G2010PrintServer.log` and any
+        `/tmp/g2010_*.log` stage logs. Wrap in code fences.
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: This is not a security vulnerability (otherwise use SECURITY.md).
+          required: true

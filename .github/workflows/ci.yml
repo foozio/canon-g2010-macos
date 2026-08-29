@@ -1,0 +1,69 @@
+name: CI
+
+# Runs on every push and PR. Requires no printer hardware: it builds the Swift
+# app, runs the fixture-based shell lifecycle tests, and lints scripts/plists.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  shell-tests:
+    name: Shell lifecycle tests
+    runs-on: macos-15
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Bash syntax check
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for f in harness/*.sh tests/*.sh G2010-PrintServer.command; do
+            echo "bash -n $f"
+            bash -n "$f"
+          done
+
+      - name: Lint LaunchAgent plist
+        run: plutil -lint launchd/*.plist
+
+      - name: Run lifecycle test suite
+        run: ./tests/test-printserver-control.sh
+
+  swift-build:
+    name: Swift build (Manager app)
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: G2010Manager
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          swift --version
+          xcodebuild -version || true
+
+      - name: Build (debug)
+        run: swift build
+
+      - name: Build (release)
+        run: swift build -c release
+
+  packaging-syntax:
+    name: Packaging script syntax
+    runs-on: macos-15
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Syntax check packaging scripts
+        run: |
+          set -euo pipefail
+          for f in G2010Manager/packaging/*.sh; do
+            echo "bash -n $f"
+            bash -n "$f"
+          done

@@ -1,5 +1,8 @@
 # Canon PIXMA G2010 on Apple Silicon macOS (Tahoe 26) — Complete Solution
 
+[![CI](https://github.com/foozio/canon-g2010-macos/actions/workflows/ci.yml/badge.svg)](https://github.com/foozio/canon-g2010-macos/actions/workflows/ci.yml)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/License-GPL--3.0--or--later-blue.svg)](LICENSE)
+
 > **Status: WORKING — Print ✅ Scan ✅**
 > Built 2026-08-22 · macOS 26.6.1 (25G76) · arm64 · Zero Canon-macOS-driver involvement
 
@@ -28,6 +31,20 @@ server — **no sudo required for operation**, no kernel extensions, no hacks.
 | [`docs/04-TROUBLESHOOTING.md`](docs/04-TROUBLESHOOTING.md) | Every failure mode encountered during the build-out, symptom → cause → fix |
 | [`docs/05-PROTOCOL-NOTES.md`](docs/05-PROTOCOL-NOTES.md) | Reverse engineering: Canon IVEC/XML-over-USB protocol, device topology |
 | [`docs/06-BUILD-NOTES.md`](docs/06-BUILD-NOTES.md) | Reproduce: rebuild Gutenprint from source exactly as done here |
+| [`docs/07-DEVELOPMENT.md`](docs/07-DEVELOPMENT.md) | **Developer guide:** setup, build, test, change recipes, debugging |
+
+## G2010 Manager (GUI app)
+
+A native SwiftUI menu-bar + dashboard app that supervises everything without a
+terminal: start/stop/restart the print server, scan with resolution/color/format
+options, list/cancel jobs, run maintenance, and tail logs. It is packaged as a
+self-contained DMG that bundles the whole runtime (no Homebrew needed at runtime).
+
+```bash
+cd G2010Manager
+swift build                       # or open the built app
+bash packaging/create-dmg.sh      # build the self-contained DMG
+```
 
 ## One-paragraph summary
 
@@ -46,21 +63,30 @@ macOS print dialog talks to like any AirPrint printer. Scanning goes through
 ```
 g2010i/
 ├── README.md                  ← you are here
-├── docs/                      ← the six documents above
+├── docs/                      ← the seven documents above
+├── G2010Manager/              ← SwiftUI app + packaging (create-dmg.sh, Info.plist)
+│   ├── Sources/               ← Swift sources (App / Models / Services / Views)
+│   └── packaging/             ← DMG + icon builders
 ├── harness/
 │   ├── printserver-control.sh ← installs/resets the launchd-owned runtime
 │   ├── start-printserver.sh   ← env-safe runtime launcher template
-│   ├── print-pipeline.sh      ← PDF → raster → Canon stream → USB
-│   └── etc/,log/,…            ← abandoned private-cupsd experiment (kept for reference)
+│   └── print-pipeline.sh      ← PDF → raster → Canon stream → USB
 ├── launchd/                   ← checked-in LaunchAgent template
 ├── G2010_gutenprint/
 │   └── stp-bjc-G2000-series.5.3.ppd   ← our PPD (cupsFilter points at ~/gp filter)
-├── gutenprint-src/            ← Gutenprint 5_3_3 source tree (built into ~/gp)
-├── cnijfilter2-src/           ← Canon's GPL Linux driver (protocol ground truth)
-├── capture/                   ← offline experiments, original PPD backup
+├── tests/
+│   └── test-printserver-control.sh    ← fixture-based lifecycle tests (no hardware)
+├── .github/                   ← issue/PR templates + CI/release workflows
+├── gutenprint-src/            ← IGNORED — Gutenprint source (fetch per docs/06)
+├── cnijfilter2-src/           ← IGNORED — Canon GPL driver (protocol reference)
+├── capture/                   ← IGNORED — offline experiments
 ├── usb_tree.txt               ← IORegistry dump of the printer
 └── scan_test.png              ← first successful scan (proof artifact)
 ```
+
+The two `IGNORED` source trees are vendored upstream references and are **not**
+committed — fetch them as described in
+[`docs/06-BUILD-NOTES.md`](docs/06-BUILD-NOTES.md).
 
 ## External runtime dependencies (Homebrew)
 
@@ -71,3 +97,23 @@ Build-time only: `autoconf automake libtool pkg-config`
 The installed runtime lives outside the privacy-protected Downloads folder at
 `~/Library/Application Support/G2010PrintServer`; launchd logs to
 `~/Library/Logs/G2010PrintServer.log`.
+
+## License
+
+This project's first-party code is licensed under **GPL-3.0-or-later** — see
+[`LICENSE`](LICENSE). The packaged runtime bundles several upstream components
+under their own licenses (Gutenprint and SANE are GPL-2.0-or-later; CUPS is
+Apache-2.0) — see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
+## Contributing
+
+Contributions are welcome — bug reports, docs fixes, code, and protocol
+knowledge are all valuable. Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) and
+the developer guide [`docs/07-DEVELOPMENT.md`](docs/07-DEVELOPMENT.md) first.
+This project follows a [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Security
+
+To report a vulnerability, please use the private process in
+[`SECURITY.md`](SECURITY.md) rather than opening a public issue.
+
