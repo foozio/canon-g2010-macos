@@ -11,6 +11,7 @@ final class AppState {
     var isRefreshing: Bool = false
     var lastRefresh: Date? = nil
     var errorMessage: String? = nil
+    var isInitialized: Bool = false
     
     // Services
     let printServer = PrintServerService()
@@ -19,8 +20,13 @@ final class AppState {
     
     private var pollingTask: Task<Void, Never>?
     
-    /// Start polling every 10 seconds
+    /// Initialize runtime and start background polling
     func startPolling() {
+        if !isInitialized {
+            try? RuntimeManager.shared.ensureInstalled()
+            isInitialized = true
+        }
+        
         pollingTask?.cancel()
         pollingTask = Task {
             while !Task.isCancelled {

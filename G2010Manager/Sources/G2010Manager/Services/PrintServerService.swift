@@ -2,9 +2,7 @@ import Foundation
 import Network
 
 actor PrintServerService {
-    private let repoPath = "/Users/foozio/Downloads/Codes/g2010i"
-    private let agentLabel = "com.foozio.g2010.printserver"
-    private let port: UInt16 = 8632
+    private let runtime = RuntimeManager.shared
     
     /// Thread-safe flag for connection state callbacks
     private final class CompletionFlag: @unchecked Sendable {
@@ -19,7 +17,7 @@ actor PrintServerService {
     
     /// Check if port 8632 is listening using Network.framework NWConnection
     func checkHealth() async -> ServerStatus {
-        let connection = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!, using: .tcp)
+        let connection = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: runtime.port)!, using: .tcp)
         
         return await withCheckedContinuation { continuation in
             let completed = CompletionFlag()
@@ -50,21 +48,49 @@ actor PrintServerService {
         }
     }
     
-    /// Restart via printserver-control.sh
+    /// Restart and bootstrap the print server service
     func restart() async throws {
-        let scriptPath = "\(repoPath)/harness/printserver-control.sh"
-        _ = try await ShellExecutor.run(bash: "bash '\(scriptPath)' restart", timeout: 30)
+        // 1. Ensure runtime files and LaunchAgent plist are updated
+        try runtime.ensureInstalled()
+        
+        // 2. Unload existing launchd job
+        _ = try? await ShellExecutor.run(bash: "launchctl bootout gui/\(uid)/\(runtime.agentLabel)", timeout: 10)
+        _ = try? await ShellExecutor.run(bash: "pkill -f ippeveprinter", timeout: 10)
+        
+        // Brief pause for port cleanup
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        
+        // 3. Bootstrap and kickstart the LaunchAgent
+        _ = try await ShellExecutor.run(bash: "launchctl bootstrap gui/\(uid) '\(runtime.launchAgentPlistURL.path)'", timeout: 10)
+        _ = try await ShellExecutor.run(bash: "launchctl kickstart -k gui/\(uid)/\(runtime.agentLabel)", timeout: 10)
+        
+        // 4. Poll until the server responds on port 8632 (up to 15s)
+        var isRunning = false
+        for _ in 0..<15 {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            if await checkHealth() == .running {
+                isRunning = true
+                break
+            }
+        }
+        
+        if !isRunning {
+            throw NSError(domain: "G2010Manager", code: 1, userInfo: [NSLocalizedDescriptionKey: "Print server failed to start on port \(runtime.port). Check logs."])
+        }
+        
+        // 5. Ensure system CUPS queue is registered
+        try? await CUPSService.ensureQueue()
     }
     
-    /// Stop the server
+    /// Stop the print server service
     func stop() async throws {
-        _ = try? await ShellExecutor.run(bash: "launchctl bootout gui/\(uid)/\(agentLabel)", timeout: 10)
+        _ = try? await ShellExecutor.run(bash: "launchctl bootout gui/\(uid)/\(runtime.agentLabel)", timeout: 10)
         _ = try? await ShellExecutor.run(bash: "pkill -f ippeveprinter", timeout: 10)
     }
     
     /// Get launchd service info
     func getServiceInfo() async throws -> String {
-        let result = try await ShellExecutor.run(bash: "launchctl print gui/\(uid)/\(agentLabel)", timeout: 10)
+        let result = try await ShellExecutor.run(bash: "launchctl print gui/\(uid)/\(runtime.agentLabel)", timeout: 10)
         return result.stdout
     }
     
