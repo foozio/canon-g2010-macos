@@ -40,3 +40,4 @@ G2010_gutenprint/*.ppd.gz
 
 # Swift Package Manager
 G2010Manager/.build/
+*.dmg
