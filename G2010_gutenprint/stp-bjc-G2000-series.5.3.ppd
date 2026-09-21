@@ -33,7 +33,7 @@
 *LandscapeOrientation: Plus90
 *TTRasterizer:	Type42
 *cupsVersion:	1.2
-*cupsFilter:	"application/vnd.cups-raster 100 /Users/foozio/gp/cupsexec/filter/rastertogutenprint.5.3"
+*cupsFilter:	"application/vnd.cups-raster 100 @GP_FILTER@"
 *cupsLanguages: "ca cs da de el en_GB es fi fr gl hu it ja nb nl pl pt ru sk sl sv tr uk vi zh_CN zh_TW"
 *cupsICCProfile Gray../Grayscale:	"/System/Library/ColorSync/Profiles/sRGB Profile.icc"
 *cupsICCProfile RGB../Color:	"/System/Library/ColorSync/Profiles/sRGB Profile.icc"
