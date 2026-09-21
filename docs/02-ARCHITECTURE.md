@@ -73,8 +73,15 @@ Verified working end-to-end: `pixma:04A9183A_0C7A8F`, A4 150 dpi PNG in ~14 s.
 ## Security notes
 
 - Everything runs as your user; no daemons with elevated rights were added.
-- The pipeline script hardcodes the local USB URI; nothing listens off-box
-  except `127.0.0.1:8632`.
+- The pipeline script hardcodes the local USB URI. ⚠️ The IPP server itself
+  is **LAN-reachable by construction**: `ippeveprinter` (CUPS 2.4.x) has no
+  listen-address option and binds all interfaces (`*:8632` on IPv4+IPv6,
+  verified live) with **no IPP authentication** — any host that can reach
+  this Mac on port 8632 can submit print jobs. Prefer trusted networks,
+  enable the macOS firewall on untrusted ones (see `03-OPERATIONS.md`
+  "Verify the bind"), and never port-forward 8632 beyond your LAN.
+  `printserver-control.sh status` prints the bind scope; `restart` warns on
+  stderr when it is not loopback-only.
 - The old experimental direct-filter queue was deleted precisely because macOS
   flags user-owned filters as insecure — the working route never exposes one to
   the system scheduler.

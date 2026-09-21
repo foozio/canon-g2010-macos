@@ -47,8 +47,10 @@ Relevant threat classes we care about:
 
 - Everything runs as your normal user — there is no root daemon and no kernel
   extension by design.
-- The IPP listener should be reachable only from localhost. See
-  `docs/03-OPERATIONS.md` and the troubleshooting docs.
+- The IPP listener (`ippeveprinter`, CUPS 2.4.x) binds all interfaces
+  (`*:8632`, no authentication) — it cannot be pinned to localhost. See
+  `docs/03-OPERATIONS.md` ("Verify the bind") for the check and firewall
+  guidance.
 - The print spool contains your documents; it lives under
   `~/Library/Application Support/G2010PrintServer/spool` and is excluded from
   version control.
