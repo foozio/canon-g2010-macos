@@ -39,5 +39,6 @@ G2010_gutenprint/*.ppd.gz
 /.nuzli/
 
 # Swift Package Manager
+/.build/
 G2010Manager/.build/
 *.dmg
