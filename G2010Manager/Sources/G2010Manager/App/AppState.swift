@@ -1,27 +1,29 @@
 import SwiftUI
 
 @Observable
-final class AppState {
+public final class AppState {
     // State
-    var serverStatus: ServerStatus = .unknown
-    var queueEnabled: Bool = false
-    var queueStatus: String = "Unknown"
-    var activeJobs: [PrintJob] = []
-    var scannerAvailable: Bool = false
-    var isRefreshing: Bool = false
-    var lastRefresh: Date? = nil
-    var errorMessage: String? = nil
-    var isInitialized: Bool = false
+    public var serverStatus: ServerStatus = .unknown
+    public var queueEnabled: Bool = false
+    public var queueStatus: String = "Unknown"
+    public var activeJobs: [PrintJob] = []
+    public var scannerAvailable: Bool = false
+    public var isRefreshing: Bool = false
+    public var lastRefresh: Date? = nil
+    public var errorMessage: String? = nil
+    public var isInitialized: Bool = false
     
     // Services
-    let printServer = PrintServerService()
-    let scanService = ScanService()
-    let logService = LogService()
+    public let printServer = PrintServerService()
+    public let scanService = ScanService()
+    public let logService = LogService()
+
+    public init() {}
     
     private var pollingTask: Task<Void, Never>?
     
     /// Initialize runtime and start background polling
-    func startPolling() {
+    public func startPolling() {
         if !isInitialized {
             try? RuntimeManager.shared.ensureInstalled()
             isInitialized = true
@@ -36,15 +38,16 @@ final class AppState {
         }
     }
     
-    func stopPolling() { pollingTask?.cancel() }
+    public func stopPolling() { pollingTask?.cancel() }
     
     /// Refresh all state
     @MainActor
-    func refresh() async {
+    public func refresh() async {
         isRefreshing = true
         defer { isRefreshing = false; lastRefresh = Date() }
         
         serverStatus = await printServer.checkHealth()
+        logService.refreshIfRotated()
         
         if let qs = try? await CUPSService.getQueueStatus() {
             queueEnabled = qs.enabled
@@ -53,5 +56,19 @@ final class AppState {
         
         activeJobs = (try? await CUPSService.listJobs()) ?? []
         scannerAvailable = await scanService.checkAvailable()
+    }
+
+    /// Run a user-initiated mutation, refresh afterwards, and route any
+    /// failure to errorMessage (rendered by ErrorBanner). Background refresh
+    /// reads keep using try? — this path is for mutations only (TASK-010).
+    @MainActor
+    public func perform(_ label: String, _ action: () async throws -> Void) async {
+        errorMessage = nil
+        do {
+            try await action()
+        } catch {
+            errorMessage = "\(label) failed: \(error.localizedDescription)"
+        }
+        await refresh()
     }
 }

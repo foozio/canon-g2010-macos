@@ -1,7 +1,7 @@
 import Foundation
 import Network
 
-actor PrintServerService {
+public actor PrintServerService {
     private let runtime = RuntimeManager.shared
     
     /// Thread-safe flag for connection state callbacks
@@ -16,7 +16,7 @@ actor PrintServerService {
     }
     
     /// Check if port 8632 is listening using Network.framework NWConnection
-    func checkHealth() async -> ServerStatus {
+    public func checkHealth() async -> ServerStatus {
         let connection = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: runtime.port)!, using: .tcp)
         
         return await withCheckedContinuation { continuation in
@@ -48,49 +48,62 @@ actor PrintServerService {
         }
     }
     
-    /// Restart and bootstrap the print server service
-    func restart() async throws {
-        // 1. Ensure runtime files and LaunchAgent plist are updated
+    /// Environment mapping the controller's PRINTSERVER_* knobs onto this
+    /// install (TASK-004). *_SOURCE point at the pristine mirror so the GUI
+    /// and the .command recovery path execute one tested implementation; the
+    /// plist source is the already-substituted installed plist (the controller
+    /// skips the copy when source and destination coincide).
+    private var controllerEnvironment: [String: String] {
+        let source = runtime.installedSourceDirURL
+        return [
+            "PRINTSERVER_LABEL": runtime.agentLabel,
+            "PRINTSERVER_PORT": String(runtime.port),
+            "PRINTSERVER_PLIST_SOURCE": runtime.launchAgentPlistURL.path,
+            "PRINTSERVER_PLIST_DEST": runtime.launchAgentPlistURL.path,
+            "PRINTSERVER_LOG": runtime.serverLogURL.path,
+            "PRINTSERVER_RUNTIME_DIR": runtime.appSupportDir.path,
+            "PRINTSERVER_START_SOURCE": source.appendingPathComponent("start-printserver.sh").path,
+            "PRINTSERVER_PIPELINE_SOURCE": source.appendingPathComponent("print-pipeline.sh").path,
+            "PRINTSERVER_PPD_SOURCE": source.appendingPathComponent("stp-bjc-G2000-series.5.3.ppd").path,
+        ]
+    }
+
+    /// Run the lifecycle controller (argv-form, never shell-string) and throw
+    /// its stderr on failure so the GUI can surface it instead of swallowing.
+    private func runController(_ command: String, timeout: TimeInterval) async throws {
+        let result = try await ShellExecutor.run(
+            runtime.controllerURL.path,
+            arguments: [command],
+            environment: controllerEnvironment,
+            timeout: timeout
+        )
+        guard result.succeeded else {
+            throw ShellError.executionFailed(command: "printserver-control.sh \(command)", exitCode: result.exitCode, stderr: result.stderr)
+        }
+    }
+
+    /// Restart via the tested controller: single-owner reinstall, guarded
+    /// orphan kill, bootstrap, readiness wait with bind-scope warning.
+    public func restart() async throws {
+        // 1. Ensure runtime files (incl. the pristine source mirror) exist.
         try runtime.ensureInstalled()
-        
-        // 2. Unload existing launchd job
-        _ = try? await ShellExecutor.run(bash: "launchctl bootout gui/\(uid)/\(runtime.agentLabel)", timeout: 10)
-        _ = try? await ShellExecutor.run(bash: "pkill -f ippeveprinter", timeout: 10)
-        
-        // Brief pause for port cleanup
-        try? await Task.sleep(nanoseconds: 500_000_000)
-        
-        // 3. Bootstrap and kickstart the LaunchAgent
-        _ = try await ShellExecutor.run(bash: "launchctl bootstrap gui/\(uid) '\(runtime.launchAgentPlistURL.path)'", timeout: 10)
-        _ = try await ShellExecutor.run(bash: "launchctl kickstart -k gui/\(uid)/\(runtime.agentLabel)", timeout: 10)
-        
-        // 4. Poll until the server responds on port 8632 (up to 15s)
-        var isRunning = false
-        for _ in 0..<15 {
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            if await checkHealth() == .running {
-                isRunning = true
-                break
-            }
-        }
-        
-        if !isRunning {
-            throw NSError(domain: "G2010Manager", code: 1, userInfo: [NSLocalizedDescriptionKey: "Print server failed to start on port \(runtime.port). Check logs."])
-        }
-        
-        // 5. Ensure system CUPS queue is registered
+
+        // 2. The controller owns the lifecycle from here (bootout →
+        //    guarded kill → reinstall → bootstrap → kickstart → wait).
+        try await runController("restart", timeout: 90)
+
+        // 3. Ensure system CUPS queue is registered.
         try? await CUPSService.ensureQueue()
     }
-    
-    /// Stop the print server service
-    func stop() async throws {
-        _ = try? await ShellExecutor.run(bash: "launchctl bootout gui/\(uid)/\(runtime.agentLabel)", timeout: 10)
-        _ = try? await ShellExecutor.run(bash: "pkill -f ippeveprinter", timeout: 10)
+
+    /// Stop via the tested controller (bootout + guarded orphan kill only).
+    public func stop() async throws {
+        try await runController("stop", timeout: 30)
     }
     
     /// Get launchd service info
-    func getServiceInfo() async throws -> String {
-        let result = try await ShellExecutor.run(bash: "launchctl print gui/\(uid)/\(runtime.agentLabel)", timeout: 10)
+    public func getServiceInfo() async throws -> String {
+        let result = try await ShellExecutor.run("/bin/launchctl", arguments: ["print", "gui/\(uid)/\(runtime.agentLabel)"], timeout: 10)
         return result.stdout
     }
     
