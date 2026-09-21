@@ -1,23 +1,34 @@
 import Foundation
 
 @Observable
-final class LogService {
-    private(set) var logLines: [String] = []
+public final class LogService {
+    public private(set) var logLines: [String] = []
     private var fileHandle: FileHandle?
     private var source: DispatchSourceFileSystemObject?
     private let maxLines = 500
     
-    let logFilePath: String = {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return "\(home)/Library/Logs/G2010PrintServer.log"
-    }()
+    public let logFilePath: String
+    private var tailedInode: UInt64?
+
+    public init(logFilePath: String? = nil) {
+        self.logFilePath = logFilePath
+            ?? FileManager.default.homeDirectoryForCurrentUser.path + "/Library/Logs/G2010PrintServer.log"
+    }
+
+    private static func inode(ofPath path: String) -> UInt64? {
+        (try? FileManager.default.attributesOfItem(atPath: path)[.systemFileNumber] as? NSNumber)?.uint64Value
+    }
     
-    /// Start tailing the log file
-    func startTailing() {
+    /// Start tailing the log file (idempotent: restarts a live tail first).
+    public func startTailing() {
+        if fileHandle != nil {
+            stopTailing()
+        }
         guard FileManager.default.fileExists(atPath: logFilePath) else { return }
         
         guard let handle = FileHandle(forReadingAtPath: logFilePath) else { return }
         self.fileHandle = handle
+        self.tailedInode = Self.inode(ofPath: logFilePath)
         
         // Read existing
         let initialData = handle.readDataToEndOfFile()
@@ -53,19 +64,36 @@ final class LogService {
     }
     
     /// Stop tailing
-    func stopTailing() {
+    public func stopTailing() {
         source?.cancel()
         source = nil
         fileHandle = nil
+        tailedInode = nil
+    }
+
+    /// Reopen the tail when rotation (or recreation) replaced the file, or
+    /// start a missing tail. Called from the app's refresh loop so the
+    /// in-app console survives server-log rotation without new timers.
+    public func refreshIfRotated() {
+        if fileHandle == nil {
+            if FileManager.default.fileExists(atPath: logFilePath) {
+                startTailing()
+            }
+            return
+        }
+        if Self.inode(ofPath: logFilePath) != tailedInode {
+            stopTailing()
+            startTailing()
+        }
     }
     
     /// Clear the in-memory log buffer
-    func clearBuffer() {
+    public func clearBuffer() {
         logLines.removeAll()
     }
     
     /// Get all log text as a single string (for copy)
-    var fullLogText: String { logLines.joined(separator: "\n") }
+    public var fullLogText: String { logLines.joined(separator: "\n") }
     
     deinit {
         stopTailing()

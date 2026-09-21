@@ -1,18 +1,18 @@
 import Foundation
 
-struct ShellResult: Sendable {
-    let stdout: String
-    let stderr: String
-    let exitCode: Int32
+public struct ShellResult: Sendable {
+    public let stdout: String
+    public let stderr: String
+    public let exitCode: Int32
     
-    var succeeded: Bool { exitCode == 0 }
+    public var succeeded: Bool { exitCode == 0 }
 }
 
-enum ShellError: LocalizedError {
+public enum ShellError: LocalizedError {
     case timeout(command: String)
     case executionFailed(command: String, exitCode: Int32, stderr: String)
     
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .timeout(let command):
             return "Command timed out: \(command)"
@@ -22,7 +22,7 @@ enum ShellError: LocalizedError {
     }
 }
 
-enum ShellExecutor {
+public enum ShellExecutor {
     /// Thread-safe flag for timeout tracking
     private final class TimeoutFlag: @unchecked Sendable {
         private var _value: Bool = false
@@ -34,12 +34,19 @@ enum ShellExecutor {
         }
     }
     
-    /// Run an executable with arguments
-    static func run(
+    /// Run an executable with arguments.
+    ///
+    /// Prefer this argv-form over the bash-string overload whenever no shell operator is
+    /// needed — arguments are passed without shell parsing, so dynamic values
+    /// (job IDs, UIDs, paths) cannot inject. When `outputFile` is set, stdout
+    /// streams straight to disk (large outputs are never buffered in memory)
+    /// and `result.stdout` is empty; stderr is still captured.
+    public static func run(
         _ executable: String,
         arguments: [String] = [],
         environment: [String: String]? = nil,
-        timeout: TimeInterval = 30
+        timeout: TimeInterval = 30,
+        outputFile: URL? = nil
     ) async throws -> ShellResult {
         return try await withCheckedThrowingContinuation { continuation in
             let queue = DispatchQueue(label: "com.g2010manager.shell", qos: .userInitiated)
@@ -58,14 +65,28 @@ enum ShellExecutor {
                 
                 let outPipe = Pipe()
                 let errPipe = Pipe()
-                process.standardOutput = outPipe
+                var outHandle: FileHandle? = nil
+                if let outputFile = outputFile {
+                    FileManager.default.createFile(atPath: outputFile.path, contents: nil)
+                    guard let handle = FileHandle(forWritingAtPath: outputFile.path) else {
+                        continuation.resume(throwing: ShellError.executionFailed(command: executable, exitCode: -1, stderr: "cannot open output file \(outputFile.path)"))
+                        return
+                    }
+                    outHandle = handle
+                    process.standardOutput = handle
+                } else {
+                    process.standardOutput = outPipe
+                }
                 process.standardError = errPipe
                 
                 do {
                     try process.run()
                     
                     let timedOut = TimeoutFlag()
-                    let commandStr = "\(executable) \(arguments.joined(separator: " "))"
+                    var commandStr = "\(executable) \(arguments.joined(separator: " "))"
+                    if let outputFile = outputFile {
+                        commandStr += " > \(outputFile.path)"
+                    }
                     
                     // Schedule timeout on the same queue
                     DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
@@ -76,22 +97,29 @@ enum ShellExecutor {
                     }
                     
                     process.waitUntilExit()
+                    outHandle?.closeFile()
                     
                     if timedOut.value {
                         continuation.resume(throwing: ShellError.timeout(command: commandStr))
                         return
                     }
                     
-                    let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+                    let stdout: String
+                    if outputFile != nil {
+                        stdout = ""
+                    } else {
+                        let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+                        stdout = String(data: outData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    }
                     let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
                     
-                    let stdout = String(data: outData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                     let stderr = String(data: errData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                     
                     let result = ShellResult(stdout: stdout, stderr: stderr, exitCode: process.terminationStatus)
                     continuation.resume(returning: result)
                     
                 } catch {
+                    outHandle?.closeFile()
                     continuation.resume(throwing: error)
                 }
             }
@@ -99,7 +127,7 @@ enum ShellExecutor {
     }
     
     /// Run a bash command string
-    static func run(
+    public static func run(
         bash command: String,
         environment: [String: String]? = nil,
         timeout: TimeInterval = 30
