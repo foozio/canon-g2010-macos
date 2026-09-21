@@ -1,4 +1,5 @@
 import SwiftUI
+import G2010ManagerCore
 
 struct LogConsoleView: View {
     @Binding var logLines: [String]

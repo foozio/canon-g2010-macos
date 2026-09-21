@@ -1,4 +1,5 @@
 import SwiftUI
+import G2010ManagerCore
 import AppKit
 
 /// Forces the SPM executable to be treated as a proper macOS GUI application.

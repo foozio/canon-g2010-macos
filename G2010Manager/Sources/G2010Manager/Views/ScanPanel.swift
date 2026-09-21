@@ -1,4 +1,5 @@
 import SwiftUI
+import G2010ManagerCore
 import AppKit
 
 struct ScanPanel: View {
@@ -7,7 +8,7 @@ struct ScanPanel: View {
     @State private var resolution: ScanResolution = .dpi300
     @State private var colorMode: ScanColorMode = .color
     @State private var format: ScanFormat = .png
-    @State private var destinationURL: URL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
+    @State private var destinationURL: URL = ScanSettings.defaultDestination
     
     @State private var isScanning = false
     @State private var lastScanURL: URL?
@@ -16,7 +17,7 @@ struct ScanPanel: View {
     var body: some View {
         Form {
             Section("Scanner") {
-                StatusBadge(title: appState.scannerAvailable ? "Available" : "Unavailable", statusColor: appState.scannerAvailable ? "green" : "red", icon: "scanner")
+                StatusBadge(title: appState.scannerAvailable ? "Available" : "Unavailable", statusColor: appState.scannerAvailable ? .green : .red, icon: "scanner")
             }
             
             Section("Settings") {

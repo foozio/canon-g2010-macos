@@ -1,4 +1,5 @@
 import SwiftUI
+import G2010ManagerCore
 
 enum SidebarItem: String, Hashable, CaseIterable {
     case dashboard = "Dashboard"
@@ -57,15 +58,19 @@ struct DashboardPanel: View {
     
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: columns, spacing: 16) {
+            VStack(spacing: 16) {
+                ErrorBanner()
+                
+                LazyVGrid(columns: columns, spacing: 16) {
                 GroupBox("Server Status") {
                     VStack(alignment: .leading, spacing: 12) {
                         StatusBadge(title: appState.serverStatus.label, statusColor: appState.serverStatus.color, icon: appState.serverStatus.icon)
                         ActionButton(title: "Restart", icon: "arrow.clockwise", isLoading: isRestarting) {
                             Task {
                                 isRestarting = true
-                                try? await appState.printServer.restart()
-                                await appState.refresh()
+                                await appState.perform("Restart") {
+                                    try await appState.printServer.restart()
+                                }
                                 isRestarting = false
                             }
                         }
@@ -75,7 +80,7 @@ struct DashboardPanel: View {
                 
                 GroupBox("Print Queue") {
                     VStack(alignment: .leading, spacing: 12) {
-                        StatusBadge(title: appState.queueStatus, statusColor: appState.queueEnabled ? "green" : "gray", icon: "printer")
+                        StatusBadge(title: appState.queueStatus, statusColor: appState.queueEnabled ? .green : .gray, icon: "printer")
                         Text("\(appState.activeJobs.count) Active Jobs")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
@@ -85,9 +90,10 @@ struct DashboardPanel: View {
                 
                 GroupBox("Scanner") {
                     VStack(alignment: .leading, spacing: 12) {
-                        StatusBadge(title: appState.scannerAvailable ? "Available" : "Unavailable", statusColor: appState.scannerAvailable ? "green" : "gray", icon: "scanner")
+                        StatusBadge(title: appState.scannerAvailable ? "Available" : "Unavailable", statusColor: appState.scannerAvailable ? .green : .gray, icon: "scanner")
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 }
             }
             .padding()

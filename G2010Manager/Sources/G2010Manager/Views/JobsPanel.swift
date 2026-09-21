@@ -1,10 +1,13 @@
 import SwiftUI
+import G2010ManagerCore
 
 struct JobsPanel: View {
     @Environment(AppState.self) private var appState
     
     var body: some View {
         VStack {
+            ErrorBanner()
+            
             if appState.activeJobs.isEmpty {
                 VStack(spacing: 16) {
                     Image(systemName: "printer")
@@ -17,8 +20,10 @@ struct JobsPanel: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 Table(appState.activeJobs) {
-                    TableColumn("ID", value: \.id)
-                    TableColumn("Document", value: \.name)
+                    // No "Document" column: lpstat exposes no job titles
+                    // (verified against -l output), so the job ID is the
+                    // best-available title — shown once, honestly labeled.
+                    TableColumn("Job ID", value: \.id)
                     TableColumn("Owner", value: \.owner)
                     TableColumn("Status", value: \.status)
                     TableColumn("Size") { job in Text(job.size ?? "") }
@@ -27,8 +32,9 @@ struct JobsPanel: View {
                     if let id = selection.first {
                         Button("Cancel Job", role: .destructive) {
                             Task {
-                                try? await CUPSService.cancelJob(id: id)
-                                await appState.refresh()
+                                await appState.perform("Cancel job") {
+                                    try await CUPSService.cancelJob(id: id)
+                                }
                             }
                         }
                     }
@@ -47,8 +53,9 @@ struct JobsPanel: View {
             ToolbarItem {
                 Button("Cancel All", role: .destructive) {
                     Task {
-                        try? await CUPSService.cancelAll()
-                        await appState.refresh()
+                        await appState.perform("Cancel all jobs") {
+                            try await CUPSService.cancelAll()
+                        }
                     }
                 }
                 .disabled(appState.activeJobs.isEmpty)

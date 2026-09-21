@@ -1,28 +1,19 @@
 import SwiftUI
+import G2010ManagerCore
 
 struct StatusBadge: View {
     let title: String
-    let statusColor: String
+    let statusColor: Color
     let icon: String
-    
-    private var color: Color {
-        switch statusColor.lowercased() {
-        case "green": return .green
-        case "yellow": return .yellow
-        case "orange": return .orange
-        case "red": return .red
-        default: return .gray
-        }
-    }
     
     var body: some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(color)
+                .fill(statusColor)
                 .frame(width: 8, height: 8)
             
             Image(systemName: icon)
-                .foregroundColor(color)
+                .foregroundColor(statusColor)
             
             Text(title)
                 .foregroundColor(.secondary)

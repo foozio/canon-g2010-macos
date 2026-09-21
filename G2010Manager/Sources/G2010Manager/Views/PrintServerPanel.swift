@@ -1,4 +1,5 @@
 import SwiftUI
+import G2010ManagerCore
 
 struct PrintServerPanel: View {
     @Environment(AppState.self) private var appState
@@ -8,9 +9,13 @@ struct PrintServerPanel: View {
     @State private var isReinstalling = false
     @State private var serviceInfo: String = ""
     @State private var isInfoExpanded = false
+    @State private var manifestText: String? = nil
+    @State private var isManifestExpanded = false
     
     var body: some View {
         Form {
+            ErrorBanner()
+            
             Section("Server Status") {
                 StatusBadge(title: appState.serverStatus.label, statusColor: appState.serverStatus.color, icon: appState.serverStatus.icon)
             }
@@ -20,8 +25,9 @@ struct PrintServerPanel: View {
                     ActionButton(title: "Start", icon: "play.fill", isLoading: isStarting) {
                         Task {
                             isStarting = true
-                            try? await appState.printServer.restart()
-                            await appState.refresh()
+                            await appState.perform("Start print server") {
+                                try await appState.printServer.restart()
+                            }
                             isStarting = false
                         }
                     }
@@ -30,8 +36,9 @@ struct PrintServerPanel: View {
                     ActionButton(title: "Stop", icon: "stop.fill", role: .destructive, isLoading: isStopping) {
                         Task {
                             isStopping = true
-                            try? await appState.printServer.stop()
-                            await appState.refresh()
+                            await appState.perform("Stop print server") {
+                                try await appState.printServer.stop()
+                            }
                             isStopping = false
                         }
                     }
@@ -40,8 +47,9 @@ struct PrintServerPanel: View {
                     ActionButton(title: "Restart", icon: "arrow.clockwise", isLoading: isRestarting) {
                         Task {
                             isRestarting = true
-                            try? await appState.printServer.restart()
-                            await appState.refresh()
+                            await appState.perform("Restart print server") {
+                                try await appState.printServer.restart()
+                            }
                             isRestarting = false
                         }
                     }
@@ -53,8 +61,9 @@ struct PrintServerPanel: View {
                 ActionButton(title: "Reinstall Queue", icon: "wrench", isLoading: isReinstalling) {
                     Task {
                         isReinstalling = true
-                        try? await CUPSService.ensureQueue()
-                        await appState.refresh()
+                        await appState.perform("Reinstall queue") {
+                            try await CUPSService.ensureQueue()
+                        }
                         isReinstalling = false
                     }
                 }
@@ -76,6 +85,25 @@ struct PrintServerPanel: View {
                         Task {
                             serviceInfo = (try? await appState.printServer.getServiceInfo()) ?? "Unknown"
                         }
+                    }
+                }
+            }
+            
+            Section("Build Manifest") {
+                DisclosureGroup(isExpanded: $isManifestExpanded) {
+                    ScrollView {
+                        Text(manifestText ?? "Loading…")
+                            .font(.system(.caption, design: .monospaced))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(height: 200)
+                } label: {
+                    Text("View Build Provenance")
+                }
+                .onChange(of: isManifestExpanded) { old, new in
+                    if new && manifestText == nil {
+                        manifestText = RuntimeManager.shared.readInstalledManifest()
+                            ?? "Not available — this runtime was not installed from a packaged DMG (see runtime/manifest.json)."
                     }
                 }
             }

@@ -1,10 +1,12 @@
 import SwiftUI
+import G2010ManagerCore
 
 struct ActionButton: View {
     let title: String
     let icon: String
     var role: ButtonRole? = nil
     let isLoading: Bool
+    var disabled: Bool = false
     let action: () -> Void
     
     var body: some View {
@@ -20,6 +22,6 @@ struct ActionButton: View {
             }
         }
         .buttonStyle(.borderedProminent)
-        .disabled(isLoading)
+        .disabled(isLoading || disabled)
     }
 }

@@ -1,4 +1,5 @@
 import SwiftUI
+import G2010ManagerCore
 
 struct MenuBarView: View {
     @Environment(AppState.self) private var appState
@@ -19,11 +20,14 @@ struct MenuBarView: View {
                 Button(appState.serverStatus == .running ? "Stop" : "Start") {
                     Task {
                         if appState.serverStatus == .running {
-                            try? await appState.printServer.stop()
+                            await appState.perform("Stop print server") {
+                                try await appState.printServer.stop()
+                            }
                         } else {
-                            try? await appState.printServer.restart()
+                            await appState.perform("Start print server") {
+                                try await appState.printServer.restart()
+                            }
                         }
-                        await appState.refresh()
                     }
                 }
                 .buttonStyle(.bordered)
@@ -33,6 +37,8 @@ struct MenuBarView: View {
             Text("Queue: \(appState.queueStatus)")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
+            
+            ErrorBanner()
             
             Divider()
             
