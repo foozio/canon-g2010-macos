@@ -9,6 +9,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Least privilege (TASK-008): lint, tests, and builds need repo read-only.
+permissions:
+  contents: read
+
 jobs:
   shell-tests:
     name: Shell lifecycle tests
@@ -32,6 +36,26 @@ jobs:
       - name: Run lifecycle test suite
         run: ./tests/test-printserver-control.sh
 
+      - name: Run runtime convergence test
+        run: ./tests/test-runtime-convergence.sh
+
+      - name: Run print pipeline test
+        run: ./tests/test-print-pipeline.sh
+
+      - name: Lint shell-string usage (TASK-006)
+        run: |
+          set -euo pipefail
+          # run(bash:) is allowed only where shell operators are required AND
+          # interpolation is constants-only (MaintenanceService pipelines).
+          # Everything else must use argv-form run(_:arguments:).
+          offenders=$(grep -rn "run(bash:" G2010Manager/Sources/ | grep -v "Services/MaintenanceService.swift" || true)
+          if [ -n "$offenders" ]; then
+            echo "New run(bash:) call sites must use argv-form (see docs/07-DEVELOPMENT.md). Offenders:"
+            echo "$offenders"
+            exit 1
+          fi
+          echo "shell-string usage OK (MaintenanceService only)"
+
   swift-build:
     name: Swift build (Manager app)
     runs-on: macos-15
@@ -52,6 +76,11 @@ jobs:
 
       - name: Build (release)
         run: swift build -c release
+
+      - name: Test (unit, hermetic — no hardware)
+        run: swift test
+        env:
+          G2010_REPO_ROOT: ${{ github.workspace }}
 
   packaging-syntax:
     name: Packaging script syntax

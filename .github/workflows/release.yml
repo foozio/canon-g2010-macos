@@ -9,11 +9,23 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+# Least privilege (TASK-008): default deny; the build job re-grants only what
+# publishing needs (see job-level permissions below).
+permissions:
+  contents: read
+
 jobs:
   build-dmg:
     name: Build self-contained DMG
     runs-on: macos-15
     timeout-minutes: 45
+    # Publishing needs: contents:write (attach the DMG to the GitHub release
+    # via softprops/action-gh-release) + actions:write (upload the DMG as a
+    # workflow artifact). Everything else stays read-only. Verify the attach
+    # still works on the next v* tag (or a workflow_dispatch dry run).
+    permissions:
+      contents: write
+      actions: write
     steps:
       - name: Check out
         uses: actions/checkout@v4
@@ -55,6 +67,23 @@ jobs:
 
       - name: Run lifecycle test suite
         run: ./tests/test-printserver-control.sh
+
+      - name: Run runtime convergence test
+        run: ./tests/test-runtime-convergence.sh
+
+      - name: Run print pipeline test
+        run: ./tests/test-print-pipeline.sh
+
+      - name: Lint shell-string usage (TASK-006)
+        run: |
+          set -euo pipefail
+          offenders=$(grep -rn "run(bash:" G2010Manager/Sources/ | grep -v "Services/MaintenanceService.swift" || true)
+          if [ -n "$offenders" ]; then
+            echo "New run(bash:) call sites must use argv-form (see docs/07-DEVELOPMENT.md). Offenders:"
+            echo "$offenders"
+            exit 1
+          fi
+          echo "shell-string usage OK (MaintenanceService only)"
 
       - name: Build DMG
         run: bash G2010Manager/packaging/create-dmg.sh
