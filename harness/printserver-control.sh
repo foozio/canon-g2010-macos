@@ -26,6 +26,28 @@ listener_pids() {
   "$LSOF_BIN" -nP -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true
 }
 
+listener_endpoints() {
+  "$LSOF_BIN" -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | awk '/\(LISTEN\)$/ {print $(NF-1)}' || true
+}
+
+warn_unless_loopback() {
+  local endpoints endpoint
+  endpoints=$(listener_endpoints)
+  [ -z "$endpoints" ] && return 0
+  for endpoint in $endpoints; do
+    case "$endpoint" in
+      127.0.0.1:*|localhost:*|\[::1\]:*)
+        ;;
+      *)
+        echo "WARNING: G2010 print server on port $PORT is listening on $endpoint, not just localhost." >&2
+        echo "WARNING: any host that can reach this machine can submit print jobs (no IPP authentication)." >&2
+        echo "WARNING: see docs/03-OPERATIONS.md \"Verify the bind\" for the check and firewall guidance." >&2
+        return 0
+        ;;
+    esac
+  done
+}
+
 stop_registered_service() {
   "$LAUNCHCTL_BIN" bootout "$SERVICE" >/dev/null 2>&1 || true
 }
@@ -56,7 +78,16 @@ install_agent() {
     return 1
   }
   mkdir -p "$(dirname "$PLIST_DEST")"
-  cp "$PLIST_SOURCE" "$PLIST_DEST"
+  # The app passes its already-substituted installed plist as the source, so
+  # source and destination may be identical — copy only when they differ.
+  if [ "$PLIST_SOURCE" != "$PLIST_DEST" ]; then
+    # Portable identity (TASK-011): the template's @HOME@ token becomes the
+    # installing user's home (launchd expands nothing itself).
+    sed "s|@HOME@|${HOME:-$(eval echo "~$(id -un)")}|g" "$PLIST_SOURCE" > "$PLIST_DEST"
+  elif grep -Fq "@HOME@" "$PLIST_DEST"; then
+    echo "ERROR: LaunchAgent plist still contains the unsubstituted @HOME@ token: $PLIST_DEST" >&2
+    return 1
+  fi
   plutil -lint "$PLIST_DEST" >/dev/null
 }
 
@@ -74,6 +105,35 @@ install_runtime() {
   cp "$PIPELINE_SOURCE" "$RUNTIME_DIR/print-pipeline.sh"
   cp "$PPD_SOURCE" "$RUNTIME_DIR/stp-bjc-G2000-series.5.3.ppd"
   chmod 755 "$RUNTIME_DIR/start-printserver.sh" "$RUNTIME_DIR/print-pipeline.sh"
+  # Portable filter path (TASK-011): the generated PPD bakes in its builder's
+  # absolute filter location — repoint at this machine's ~/gp build (docs/06).
+  sed -i '' 's|^\*cupsFilter:.*|*cupsFilter: "application/vnd.cups-raster 100 '"$HOME"'/gp/cupsexec/filter/rastertogutenprint.5.3"|' \
+    "$RUNTIME_DIR/stp-bjc-G2000-series.5.3.ppd"
+
+  # Privacy (TASK-003): the spool holds user document bytes and the server
+  # log echoes job metadata — lock the tree down (owner-only). New spool/log
+  # files are born 0600 via `umask 077` in the launcher; tighten pre-existing
+  # files here so upgraded installs converge too.
+  chmod 0700 "$RUNTIME_DIR" "$RUNTIME_DIR/spool"
+  local spooled
+  for spooled in "$RUNTIME_DIR"/spool/*; do
+    [ -e "$spooled" ] || continue
+    [ -f "$spooled" ] && chmod 0600 "$spooled"
+  done
+  touch "$SERVER_LOG"
+  chmod 0600 "$SERVER_LOG"
+  # Log hygiene (TASK-014): bound the server log with one backup generation.
+  # Runs while the daemon is stopped (restart unloads first), so no open fd
+  # survives the move — the relaunched daemon opens a fresh log.
+  if [ "$(stat -f%z "$SERVER_LOG")" -gt "${PRINTSERVER_LOG_MAX_BYTES:-5242880}" ]; then
+    mv -f "$SERVER_LOG" "$SERVER_LOG.1"
+  fi
+}
+
+sweep_stale_spool() {
+  local max_age="${PRINTSERVER_SPOOL_MAX_AGE_DAYS:-3}" spool="$RUNTIME_DIR/spool"
+  [ -d "$spool" ] || return 0
+  find "$spool" -maxdepth 1 -type f -mtime +"$max_age" -delete
 }
 
 wait_until_ready() {
@@ -81,6 +141,7 @@ wait_until_ready() {
   while [ "$attempt" -le "$WAIT_ATTEMPTS" ]; do
     if [ -n "$(listener_pids)" ]; then
       echo "G2010 print server is ready on port $PORT."
+      warn_unless_loopback
       return 0
     fi
     "$SLEEP_BIN" 1
@@ -98,6 +159,7 @@ restart() {
   stop_registered_service
   remove_orphaned_listener || return 1
   install_runtime || return 1
+  sweep_stale_spool
   install_agent || return 1
   "$LAUNCHCTL_BIN" bootstrap "$DOMAIN" "$PLIST_DEST" || return 1
   "$LAUNCHCTL_BIN" kickstart -k "$SERVICE" || return 1
@@ -107,18 +169,27 @@ restart() {
 status() {
   if [ -n "$(listener_pids)" ]; then
     "$LAUNCHCTL_BIN" print "$SERVICE" 2>/dev/null | sed -n '1,18p'
+    echo "Listening on: $(listener_endpoints | tr '\n' ' ')"
     echo "G2010 print server is ready on port $PORT."
+    warn_unless_loopback
     return 0
   fi
   echo "G2010 print server is not listening on port $PORT." >&2
   return 1
 }
 
+stop() {
+  stop_registered_service
+  remove_orphaned_listener || return 1
+  echo "G2010 print server stopped."
+}
+
 case "${1:-restart}" in
   restart) restart ;;
   status) status ;;
+  stop) stop ;;
   *)
-    echo "Usage: $0 {restart|status}" >&2
+    echo "Usage: $0 {restart|status|stop}" >&2
     exit 2
     ;;
 esac
