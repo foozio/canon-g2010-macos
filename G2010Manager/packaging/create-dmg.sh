@@ -73,6 +73,17 @@ cp "$GP_DIR/cupsexec/filter/rastertogutenprint.5.3" "$RUNTIME_DIR/bin/"
 cp -R "$GP_DIR/share/gutenprint/5.3/xml/" "$RUNTIME_DIR/share/gutenprint/5.3/xml/"
 cp "$REPO_ROOT/G2010_gutenprint/stp-bjc-G2000-series.5.3.ppd" "$RUNTIME_DIR/ppd/"
 
+# 6b. Bundle pristine runtime sources (single source of truth — TASK-001).
+# RuntimeManager copies these into ~/Library/Application Support/G2010PrintServer
+# with install-prefix substitution instead of generating scripts from strings.
+echo "→ Bundling pristine runtime sources..."
+mkdir -p "$RUNTIME_DIR/source"
+cp "$REPO_ROOT/harness/printserver-control.sh" "$RUNTIME_DIR/source/"
+cp "$REPO_ROOT/harness/start-printserver.sh" "$RUNTIME_DIR/source/"
+cp "$REPO_ROOT/harness/print-pipeline.sh" "$RUNTIME_DIR/source/"
+cp "$REPO_ROOT/launchd/com.foozio.g2010.printserver.plist" "$RUNTIME_DIR/source/"
+cp "$REPO_ROOT/G2010_gutenprint/stp-bjc-G2000-series.5.3.ppd" "$RUNTIME_DIR/source/"
+
 # 7. Bundle IPP Server (ippeveprinter + relocated dylibs)
 echo "→ Bundling ippeveprinter & CUPS dylibs..."
 require_file "$BREW_PREFIX/opt/cups/bin/ippeveprinter" "brew install cups (keg-only)"
@@ -146,6 +157,13 @@ find "$APP_BUNDLE" -type f \( -name "*.dylib" -o -name "*.so" -o -perm +111 \) -
       codesign -s - -f "$item" >/dev/null
     done
 codesign -s - -f "$APP_BUNDLE"
+
+# 10b. Write build-provenance manifest (TASK-007) AFTER codesigning so the
+# recorded shas cover the shipped bytes. Version comes from Info.plist (single
+# source of truth for the app version).
+echo "→ Writing build-provenance manifest..."
+APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP_BUNDLE/Contents/Info.plist")"
+bash "$SCRIPT_DIR/generate-manifest.sh" "$REPO_ROOT" "$RUNTIME_DIR" "$APP_VERSION"
 
 # 11. Create Applications symlink for drag-to-install
 echo "→ Creating Applications symlink..."
