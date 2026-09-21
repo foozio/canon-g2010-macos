@@ -118,9 +118,10 @@ assert_contains "$PACKAGING" 'harness/printserver-control.sh" "$RUNTIME_DIR/sour
 
 # 8. TASK-011 acceptance 1: no hardcoded author home in tracked files
 #    (git grep covers tracked files only, so the gitignored .nuzli layer and
-#    build residue can never trip this).
-if git -C "$ROOT" grep -n "Users/foozio" -- . | grep -q .; then
-  git -C "$ROOT" grep -n "Users/foozio" -- . >&2
+#    build residue can never trip this; the guard file itself is excluded
+#    since it must name the pattern to check for it).
+if git -C "$ROOT" grep -n "Users/foozio" -- . ':!tests/test-runtime-convergence.sh' | grep -q .; then
+  git -C "$ROOT" grep -n "Users/foozio" -- . ':!tests/test-runtime-convergence.sh' >&2
   fail "tracked files must not hardcode /Users/foozio (see TASK-011)"
 fi
 
