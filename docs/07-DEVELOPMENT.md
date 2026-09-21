@@ -14,13 +14,13 @@ G2010 Manager (SwiftUI app)            Print/Scan runtime (shell + launchd)
 ┌───────────────────────────┐          ┌──────────────────────────────────────┐
 │ MenuBar + Dashboard        │ launchctl│ LaunchAgent (KeepAlive)               │
 │ AppState(@Observable)      │ lp*/…   │   → start-printserver.sh              │
-│  ├ PrintServerService(actor)────────▶│     → ippeveprinter :8632             │
+│  ├ PrintServerService ──▶ controller ──▶ ippeveprinter :8632                │
 │  ├ ScanService(actor)      │ scanimage│        -c print-pipeline.sh           │
 │  ├ CUPSService             │          │   cgpdftoraster → Gutenprint → usb   │
 │  ├ MaintenanceService      │          └──────────────────────────────────────┘
 │  ├ LogService              │          Scan: scanimage → SANE pixma → USB
 │  └ ShellExecutor           │
-│ RuntimeManager (installer) │  regenerates runtime scripts/plist/PPD
+│ RuntimeManager (installer) │  copies pristine sources + substitutes prefixes
 └───────────────────────────┘
 ```
 
@@ -42,11 +42,14 @@ spawn or babysit `ippeveprinter`.
 | `cnijfilter2-src/` | ❌ ignored | Canon GPL driver (protocol reference only) |
 | `harness/spool*`, `*.log`, `capture/` | ❌ ignored | privacy / ephemera |
 
-⚠️ Two producers write the same runtime files: `harness/printserver-control.sh`
-(Gen-1) copies the checked-in scripts, while the Swift `RuntimeManager` (Gen-2)
-regenerates them from string templates. If you change one, check the other —
-keeping them consistent is a known maintenance burden (the pipeline template in
-`RuntimeManager` currently diverges from the tested `harness/print-pipeline.sh`).
+✅ One producer rule (TASK-001): `harness/printserver-control.sh`
+installs the checked-in scripts verbatim, while the Swift `RuntimeManager`
+installs *copies of those same files* with install-prefix substitution only
+(see `installLauncherFromSource()` / `installPipelineFromSource()` /
+`installLaunchAgentPlist()`). If you change a runtime file, change the
+checked-in source — never the installed copy — and keep
+`tests/test-runtime-convergence.sh` green; it locks the substitution contract
+from both sides.
 
 ## 3. Development environment setup
 
@@ -58,6 +61,12 @@ brew install autoconf automake libtool pkg-config   # to build Gutenprint
 brew install cups sane-backends libusb              # runtime deps (cups is keg-only)
 ```
 
+Point dev builds at your checkout (required — there is no hardcoded fallback):
+
+```bash
+export G2010_REPO_ROOT="$PWD"   # run from the repo root; add to your shell profile
+```
+
 No printer is required to build, run tests, or work on most code.
 
 ### Build the Swift app
@@ -66,11 +75,16 @@ No printer is required to build, run tests, or work on most code.
 cd G2010Manager
 swift build                # debug
 swift build -c release     # release (what the DMG packages)
+G2010_REPO_ROOT="$PWD/.." swift test   # unit tests (hermetic, no hardware)
 .build/debug/G2010Manager  # run it (menu-bar icon appears)
 ```
 
 The app uses only system frameworks (SwiftUI, AppKit, Foundation, Network) —
-please do not add external Swift dependencies.
+please do not add external Swift dependencies. App logic lives in the
+`G2010ManagerCore` library target (same directory, partitioned by excludes in
+`Package.swift` — keep the two subsets complementary); `G2010ManagerTests`
+covers settings naming, lpstat parsing, pixma extraction, shell execution,
+constants coherence, and the provisioning contract.
 
 ### Build the Gutenprint driver (only if you change the print path)
 
@@ -89,8 +103,10 @@ generated `./configure` directly.
 - Every shell/runtime change must keep this suite green.
 - Add a new fixture-based test in the same style when you change lifecycle logic.
 
-Swift currently has no unit-test target. If you add one, wire it into
-`.github/workflows/ci.yml`.
+Swift unit tests (`G2010Manager/Tests/`, run via `swift test`, also in CI)
+cover the app core without hardware: extend them when you change parsing,
+settings, shell execution, constants, or provisioning (pure/static/published
+surface first — see `Tests/G2010ManagerTests/` for the pattern).
 
 ## 5. Common change recipes
 
@@ -104,10 +120,13 @@ Swift currently has no unit-test target. If you add one, wire it into
 
 ### Change the print pipeline
 
-Edit `harness/print-pipeline.sh` (the tested source of truth) **and** mirror the
-change in `RuntimeManager.generatePrintPipelineScript()`. Preserve the
+Edit `harness/print-pipeline.sh` (the tested source of truth) — nothing else.
+`RuntimeManager` copies it verbatim apart from install-prefix substitution
+(`GP_FILTER`, `PPD`), and `tests/test-runtime-convergence.sh` fails if the
+substitution literals drift. Preserve the
 `job-id user title copies options file…` calling convention that `ippeveprinter`
-uses. Keep `set -euo pipefail` so an upstream failure is not reported as success.
+uses (`shift 5`, file last). Do not reintroduce `INPUT_FILE="$1"`-style
+parsing — that was the TASK-001 divergence that broke app-installed printing.
 
 ### Add a panel to the Manager app
 
@@ -119,13 +138,12 @@ uses. Keep `set -euo pipefail` so an upstream failure is not reported as success
 
 ### Change a runtime constant (port, queue name, label)
 
-These values are duplicated across Swift and shell. Today you must update every
-occurrence — grep first:
-
-```bash
-grep -rn "8632\|G2010IPP\|com.foozio.g2010.printserver\|0C7A8F" \
-  G2010Manager/Sources harness launchd G2010-PrintServer.command
-```
+These live in exactly one place per side: `G2010Manager/Sources/G2010Manager/Models/RuntimeConstants.swift`
+(Swift) and the `PRINTSERVER_*` env knobs (shell — see the top of
+`harness/printserver-control.sh`). Printer identity additionally honors
+`PRINTSERVER_DEVICE_URI` (pipeline), `G2010_DEVICE_URI` /
+`G2010_SCANNER_DEVICE` (app), and the app auto-detects the scanner by parsing
+`scanimage -L`.
 
 ## 6. Debugging
 
@@ -141,17 +159,27 @@ Reset everything to a known state: `harness/printserver-control.sh restart`.
 
 ## 7. Known sharp edges (fix welcome — see issue tracker)
 
-- Printer serial `0C7A8F` and some `/Users/foozio` paths are hardcoded in places;
-  move toward runtime discovery / `$HOME`.
-- The Swift `RuntimeManager`-generated `print-pipeline.sh` mis-parses the
-  ippeveprinter argument convention; prefer copying the tested harness script.
-- The IPP listener should be confirmed loopback-only for multi-host networks.
-- No Swift unit tests yet.
+- Machine identity is portable as of TASK-011 (dynamic HOME/USER, `@HOME@`
+  plist token, `$HOME`-relative filter path, device overrides, scanner
+  auto-detect) but still single-printer-family: full sibling-model support
+  (per-model PPD regen) remains a recipe, not code.
+- The IPP listener is LAN-reachable by construction (`ippeveprinter` 2.4.x
+  has no bind flag; `restart`/`status` report and warn on scope) — firewall
+  guidance lives in `docs/03-OPERATIONS.md`.
+- Swift unit tests live in `G2010Manager/Tests/` — extend them with the
+  changed behavior, not just new code paths.
 
 ## 8. Style & conventions
 
 - **Shell:** `#!/bin/bash`, `set -euo pipefail`, quote expansions, overridable
   `PRINTSERVER_*` env knobs in the controller.
+- **Swift process execution (TASK-006):** argv-form
+  `ShellExecutor.run(_:arguments:)` for anything dynamic (job IDs, UIDs,
+  paths, scan settings) — arguments bypass shell parsing, so they cannot
+  inject. `run(bash:)` only where a shell operator is required (pipes in
+  `MaintenanceService`, whose interpolation is constants-only) — any other
+  `run(bash:)` use fails CI. Stdout-to-disk streaming uses `outputFile:`,
+  never shell `>` with an interpolated path.
 - **Swift:** Swift API design guidelines; `actor` for external-process services;
   `@Observable` for UI state; no third-party dependencies.
 - **Docs:** numbered files under `docs/`; keep them in sync when behavior changes.
@@ -164,6 +192,11 @@ Reset everything to a known state: `harness/printserver-control.sh restart`.
   runs the tests, builds the self-contained DMG, and attaches it to the GitHub
   release. DMGs are ad-hoc signed; using a Developer ID + notarization requires
   repository secrets (maintainers only).
+- Provenance: `packaging/generate-manifest.sh` (run by `create-dmg.sh` after
+  codesigning) writes `runtime/manifest.json` — app/git/Gutenprint/Homebrew
+  versions plus sha256 of every bundled binary and the XML database; the app
+  shows it under Print Server → Build Manifest. Redistribution additionally
+  needs Developer ID + notarization (fail-closed signing, not yet wired).
 
 ## 10. Checklist before opening a PR
 
