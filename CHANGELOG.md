@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-10-04
+
+### Added
+- **Design Pattern Architecture Reconstruction (`eleev/swift-design-patterns`)**:
+  - **MVVM-C**: Decoupled presentation logic into `@Observable` ViewModels (`DashboardViewModel`, `PrintServerViewModel`, `ScanViewModel`, `JobsViewModel`, `MaintenanceViewModel`, `TroubleshootViewModel`, `MenuBarViewModel`) and centralized navigation flow/modals in `AppCoordinator`.
+  - **Dependency Injection & Container**: Added `DependencyContainer` implementing abstract factory and service container patterns, enabling full mockability and constructor injection.
+  - **Command Pattern**: Encapsulated hardware actions and quick-fixes into executable commands (`StandardCleaningCommand`, `DeepCleaningCommand`, `NozzleCheckCommand`, `PrintAlignmentCommand`, `ClearStuckJobsCommand`, `ReinstallQueueCommand`, `RestartServerCommand`, `RemoveStaleQueuesCommand`, `CancelJobCommand`, `CancelJobsCommand`).
+  - **State Machine Pattern**: Formalized state modeling for maintenance availability (`MaintenanceAvailability`) and queue state (`QueueState`), eliminating scattered boolean flags.
+  - **Structural Adapters & Facade**: Created `ShellExecuting` (`DefaultShellExecutor`), `CUPSServiceProtocol` (`DefaultCUPSService`), and `MaintenanceServiceProtocol` (`DefaultMaintenanceService`); refactored `AppState` into a high-level application Facade.
+  - **Design for Testability**: Added dedicated test suites for Dependency Container, Commands, ViewModels, and Coordinator, expanding coverage to 58 automated tests.
+- **Application Versioning**:
+  - Centralized version constants in `RuntimeConstants` (`appVersion`, `buildVersion`, `displayVersion`, `fullVersionString`).
+  - Added CLI version support (`G2010Manager --version`, `-v`).
+  - Surfaced version badges in the Menu Bar extra and Dashboard footer.
+  - Dynamically resolved version metadata in DMG packaging (`create-dmg.sh`).
+- Open-source governance: `LICENSE` (GPL-3.0-or-later), `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `THIRD_PARTY_NOTICES.md`.
+- GitHub issue/PR templates and CI workflow (build + shell test suite).
+- `docs/07-DEVELOPMENT.md` — developer setup, build, test, and contribution guide.
+
 ### Fixed
 - Single-source runtime provisioning (TASK-001): `RuntimeManager` now installs
   copies of the tested `harness/` + `launchd/` + PPD sources with
@@ -16,59 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (Gen-1 flat layout); stale `scripts/` copies are removed on install.
   `create-dmg.sh` bundles the pristine sources under `runtime/source/`, and
   `tests/test-runtime-convergence.sh` (run in CI) locks the contract.
-
-### Security
-- IPP exposure clarified and surfaced (TASK-002): `ippeveprinter` (CUPS 2.4.x)
-  has no listen-address option — live-verified it binds all interfaces
-  (`*:8632` IPv4+IPv6, no authentication), so the loopback-only claim in the
-  docs was wrong and is now corrected. `printserver-control.sh status` prints
-  the bind scope and `restart` warns on stderr when it is not loopback-only
-  (fixture-tested); `docs/03-OPERATIONS.md` gains a "Verify the bind" section
-  with firewall   guidance. Deliberately warn-only: refusing to run would brick
-  printing since no loopback-only mode exists without elevated firewall rules.
 - Pipeline failure propagation (TASK-009): `harness/print-pipeline.sh` now
   runs under `set -uo pipefail` (deliberately no `-e`, preserving the
   rc-capture/tail flow) with `set -u`-safe arg defaults, so a cgpdftoraster
   or Gutenprint failure can no longer be masked by a succeeding usb backend
   into a "completed but silent" job. Covered by `tests/test-print-pipeline.sh`
   (mid/first-stage failure, success, zero-arg cases; run in CI).
-- Spool/log privacy hardening (TASK-003): runtime + spool dirs are `0700`,
-  spool files and the server log `0600` (new files born owner-only via
-  `umask 077` in the launcher; `restart` re-tightens pre-existing files and
-  sweeps spool files older than 3 days, `PRINTSERVER_SPOOL_MAX_AGE_DAYS`
-  overrides). Dev-machine spool/log residue deleted; `docs/03-OPERATIONS.md`
-  documents retention and the FileVault assumption.
-- GUI lifecycle unified behind the tested controller (TASK-004): the Manager
-  app's restart/stop now shell out to `printserver-control.sh` (argv-form,
-  no shell-string) instead of reimplementing launchctl/pkill logic — the
-  unguarded GUI `pkill -f ippeveprinter` is gone, and GUI restarts inherit
-  the single-owner ordering, orphan guard, and bind-scope warning. The
-  controller gains a `stop` verb (bootout + guarded kill); the app bundles
-  it under `runtime/source/` and `RuntimeManager` mirrors pristine sources
-  there for the controller to consume. Verified end-to-end against real
-  launchd + `ippeveprinter` on an isolated port/label.
-- Maintenance safety (TASK-005): backend exit codes are enforced (failures
-  raise Error alerts instead of false "Success"), Deep Cleaning requires a
-  confirmation dialog stating the ink cost, and all four actions disable with
-  a reason unless the server is running, the queue is enabled, and no jobs
-  are active. Mechanical effect on firmware `VER:1.040` remains unverified —
-  documented in `docs/03-OPERATIONS.md`; USB-absent is reported attempt-time
-  via the backend exit code (no slow device probe in the poll loop).
-- Shell-string discipline (TASK-006): all Swift process execution except the
-  `MaintenanceService` pipe uses argv-form `run(_:arguments:)` with absolute
-  system binary paths (no shell parsing of job IDs, UIDs, paths, or scan
-  settings); scan output streams via a new `outputFile:` redirect instead of
-  shell `>`, and scan failures now throw on nonzero exit. A CI lint step
-  fails any new `run(bash:)` use outside `MaintenanceService.swift`.
-- DMG provenance (TASK-007): `packaging/generate-manifest.sh` records
-  `runtime/manifest.json` at package time (app/git/Gutenprint/Homebrew
-  versions, sha256 of bundled binaries, XML database fingerprint, ad-hoc
-  codesign statement), shown in the app under Print Server → Build Manifest.
-  Signing stays ad-hoc; Developer ID + notarization remain future work.
-- CI least-privilege (TASK-008): `ci.yml` runs read-only; the release job
-  grants only `contents:write` (release attach) + `actions:write` (artifact
-  upload). Dependabot watches `github-actions` weekly. Push protection and
-  the next release-attach verification are manual maintainer steps.
 - Honest GUI error reporting (TASK-010): user-initiated mutations go through
   `AppState.perform()`, which refreshes and routes failures to a shared
   `ErrorBanner` (Dashboard, Print Server, Jobs, menu bar); the Troubleshoot
@@ -111,11 +83,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   malformed rows are salvaged instead of dropped, and `ensureQueue()` leaves
   a healthy queue alone (`force:` still recreates, e.g. capability refresh).
 
-### Added
-- Open-source governance: `LICENSE` (GPL-3.0-or-later), `CONTRIBUTING.md`,
-  `CODE_OF_CONDUCT.md`, `SECURITY.md`, `THIRD_PARTY_NOTICES.md`.
-- GitHub issue/PR templates and CI workflow (build + shell test suite).
-- `docs/07-DEVELOPMENT.md` — developer setup, build, test, and contribution guide.
+### Security
+- IPP exposure clarified and surfaced (TASK-002): `ippeveprinter` (CUPS 2.4.x)
+  has no listen-address option — live-verified it binds all interfaces
+  (`*:8632` IPv4+IPv6, no authentication), so the loopback-only claim in the
+  docs was wrong and is now corrected. `printserver-control.sh status` prints
+  the bind scope and `restart` warns on stderr when it is not loopback-only
+  (fixture-tested); `docs/03-OPERATIONS.md` gains a "Verify the bind" section
+  with firewall guidance. Deliberately warn-only: refusing to run would brick
+  printing since no loopback-only mode exists without elevated firewall rules.
+- Spool/log privacy hardening (TASK-003): runtime + spool dirs are `0700`,
+  spool files and the server log `0600` (new files born owner-only via
+  `umask 077` in the launcher; `restart` re-tightens pre-existing files and
+  sweeps spool files older than 3 days, `PRINTSERVER_SPOOL_MAX_AGE_DAYS`
+  overrides). Dev-machine spool/log residue deleted; `docs/03-OPERATIONS.md`
+  documents retention and the FileVault assumption.
+- GUI lifecycle unified behind the tested controller (TASK-004): the Manager
+  app's restart/stop now shell out to `printserver-control.sh` (argv-form,
+  no shell-string) instead of reimplementing launchctl/pkill logic — the
+  unguarded GUI `pkill -f ippeveprinter` is gone, and GUI restarts inherit
+  the single-owner ordering, orphan guard, and bind-scope warning. The
+  controller gains a `stop` verb (bootout + guarded kill); the app bundles
+  it under `runtime/source/` and `RuntimeManager` mirrors pristine sources
+  there for the controller to consume. Verified end-to-end against real
+  launchd + `ippeveprinter` on an isolated port/label.
+- Maintenance safety (TASK-005): backend exit codes are enforced (failures
+  raise Error alerts instead of false "Success"), Deep Cleaning requires a
+  confirmation dialog stating the ink cost, and all four actions disable with
+  a reason unless the server is running, the queue is enabled, and no jobs
+  are active. Mechanical effect on firmware `VER:1.040` remains unverified —
+  documented in `docs/03-OPERATIONS.md`; USB-absent is reported attempt-time
+  via the backend exit code (no slow device probe in the poll loop).
+- Shell-string discipline (TASK-006): all Swift process execution except the
+  `MaintenanceService` pipe uses argv-form `run(_:arguments:)` with absolute
+  system binary paths (no shell parsing of job IDs, UIDs, paths, or scan
+  settings); scan output streams via a new `outputFile:` redirect instead of
+  shell `>`, and scan failures now throw on nonzero exit. A CI lint step
+  fails any new `run(bash:)` use outside `MaintenanceService.swift`.
+- DMG provenance (TASK-007): `packaging/generate-manifest.sh` records
+  `runtime/manifest.json` at package time (app/git/Gutenprint/Homebrew
+  versions, sha256 of bundled binaries, XML database fingerprint, ad-hoc
+  codesign statement), shown in the app under Print Server → Build Manifest.
+  Signing stays ad-hoc; Developer ID + notarization remain future work.
+- CI least-privilege (TASK-008): `ci.yml` runs read-only; the release job
+  grants only `contents:write` (release attach) + `actions:write` (artifact
+  upload). Dependabot watches `github-actions` weekly. Push protection and
+  the next release-attach verification are manual maintainer steps.
 
 ## [1.0.0] — 2026-08-29
 
@@ -138,5 +151,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documentation set `docs/01–06` (diagnosis, architecture, operations,
   troubleshooting, protocol notes, build notes).
 
-[Unreleased]: https://github.com/foozio/canon-g2010-macos/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/foozio/canon-g2010-macos/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/foozio/canon-g2010-macos/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/foozio/canon-g2010-macos/releases/tag/v1.0.0

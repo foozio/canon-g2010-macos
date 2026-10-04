@@ -10,7 +10,8 @@ STAGING="$PROJECT_DIR/.build/dmg-staging"
 APP_NAME="G2010 Manager"
 APP_BUNDLE="$STAGING/$APP_NAME.app"
 RUNTIME_DIR="$APP_BUNDLE/Contents/Resources/runtime"
-DMG_NAME="G2010-Manager-1.0.0"
+APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$SCRIPT_DIR/Info.plist" 2>/dev/null || echo "1.1.0")"
+DMG_NAME="G2010-Manager-$APP_VERSION"
 DMG_PATH="$PROJECT_DIR/$DMG_NAME.dmg"
 
 fail() { echo "ERROR: $*" >&2; exit 1; }
@@ -34,7 +35,7 @@ JPEG_LIB="$(ls "$BREW_PREFIX/opt/jpeg-turbo/lib/"libjpeg.*.dylib 2>/dev/null | h
 GP_DIR="${GUTENPRINT_PREFIX:-$HOME/gp}"
 
 echo "=================================================="
-echo "  Packaging Self-Contained G2010 Manager (v1.0.0)"
+echo "  Packaging Self-Contained G2010 Manager (v$APP_VERSION)"
 echo "=================================================="
 
 # 1. Build release binary

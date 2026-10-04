@@ -68,6 +68,12 @@ struct DashboardPanel: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
+                
+                Text("G2010 Manager v\(RuntimeConstants.fullVersionString)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, 8)
             }
             .padding()
         }

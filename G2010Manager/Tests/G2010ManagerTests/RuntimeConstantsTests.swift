@@ -24,4 +24,11 @@ final class RuntimeConstantsTests: XCTestCase {
             "\(RuntimeConstants.agentLabel).plist"
         )
     }
+
+    func testVersionConstantsAreSane() {
+        XCTAssertFalse(RuntimeConstants.appVersion.isEmpty)
+        XCTAssertFalse(RuntimeConstants.buildVersion.isEmpty)
+        XCTAssertTrue(RuntimeConstants.displayVersion.contains("."))
+        XCTAssertTrue(RuntimeConstants.fullVersionString.contains(RuntimeConstants.displayVersion))
+    }
 }

@@ -18,6 +18,11 @@ struct G2010ManagerApp: App {
     @Environment(\.openWindow) private var openWindow
 
     init() {
+        if CommandLine.arguments.contains("--version") || CommandLine.arguments.contains("-v") {
+            print("G2010 Manager \(RuntimeConstants.displayVersion) (Build \(RuntimeConstants.buildVersion))")
+            exit(0)
+        }
+        
         let state = AppState()
         let coord = AppCoordinator()
         _appState = State(initialValue: state)

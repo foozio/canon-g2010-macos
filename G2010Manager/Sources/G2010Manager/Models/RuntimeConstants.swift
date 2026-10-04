@@ -14,4 +14,25 @@ public enum RuntimeConstants {
     public static let printerSerial = "0C7A8F"
     public static let deviceURI = "usb://Canon/G2010%20series?serial=" + printerSerial
     public static let scannerDevice = "pixma:04A9183A_" + printerSerial
+    
+    // Application versioning
+    public static let appVersion = "1.1.0"
+    public static let buildVersion = "2"
+    
+    /// Display version resolved dynamically from Bundle.main if available, else static appVersion.
+    public static var displayVersion: String {
+        if let shortVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String, !shortVersion.isEmpty {
+            return shortVersion
+        }
+        return appVersion
+    }
+    
+    /// Full version string including build number
+    public static var fullVersionString: String {
+        if let shortVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String, !shortVersion.isEmpty,
+           let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String, !build.isEmpty {
+            return "\(shortVersion) (\(build))"
+        }
+        return "\(appVersion) (\(buildVersion))"
+    }
 }

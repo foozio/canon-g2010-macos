@@ -14,6 +14,10 @@ struct MenuBarView: View {
                     .foregroundColor(.blue)
                 Text("Canon G2010")
                     .font(.headline)
+                Spacer()
+                Text("v\(RuntimeConstants.displayVersion)")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
             }
             
             HStack {
