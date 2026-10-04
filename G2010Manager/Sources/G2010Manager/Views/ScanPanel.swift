@@ -3,37 +3,33 @@ import G2010ManagerCore
 import AppKit
 
 struct ScanPanel: View {
-    @Environment(AppState.self) private var appState
-    
-    @State private var resolution: ScanResolution = .dpi300
-    @State private var colorMode: ScanColorMode = .color
-    @State private var format: ScanFormat = .png
-    @State private var destinationURL: URL = ScanSettings.defaultDestination
-    
-    @State private var isScanning = false
-    @State private var lastScanURL: URL?
-    @State private var scanError: String?
+    @Bindable var viewModel: ScanViewModel
     
     var body: some View {
+        let appState = viewModel.appState
         Form {
             Section("Scanner") {
-                StatusBadge(title: appState.scannerAvailable ? "Available" : "Unavailable", statusColor: appState.scannerAvailable ? .green : .red, icon: "scanner")
+                StatusBadge(
+                    title: appState.scannerAvailable ? "Available" : "Unavailable",
+                    statusColor: appState.scannerAvailable ? .green : .red,
+                    icon: "scanner"
+                )
             }
             
             Section("Settings") {
-                Picker("Resolution", selection: $resolution) {
+                Picker("Resolution", selection: $viewModel.resolution) {
                     ForEach(ScanResolution.allCases) { res in
                         Text(res.label).tag(res)
                     }
                 }
                 
-                Picker("Color Mode", selection: $colorMode) {
+                Picker("Color Mode", selection: $viewModel.colorMode) {
                     ForEach(ScanColorMode.allCases) { mode in
                         Text(mode.label).tag(mode)
                     }
                 }
                 
-                Picker("Format", selection: $format) {
+                Picker("Format", selection: $viewModel.format) {
                     ForEach(ScanFormat.allCases) { fmt in
                         Text(fmt.label).tag(fmt)
                     }
@@ -42,7 +38,7 @@ struct ScanPanel: View {
             
             Section("Destination") {
                 HStack {
-                    Text(destinationURL.path)
+                    Text(viewModel.destinationURL.path)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer()
@@ -52,13 +48,13 @@ struct ScanPanel: View {
                         panel.canChooseDirectories = true
                         panel.allowsMultipleSelection = false
                         if panel.runModal() == .OK, let url = panel.url {
-                            destinationURL = url
+                            viewModel.setDestination(url: url)
                         }
                     }
                 }
             }
             
-            if isScanning {
+            if viewModel.isScanning {
                 Section {
                     HStack {
                         ProgressView()
@@ -72,16 +68,7 @@ struct ScanPanel: View {
             Section {
                 Button(action: {
                     Task {
-                        isScanning = true
-                        scanError = nil
-                        lastScanURL = nil
-                        let settings = ScanSettings(resolution: resolution, colorMode: colorMode, format: format, destinationURL: destinationURL)
-                        do {
-                            lastScanURL = try await appState.scanService.scan(settings: settings)
-                        } catch {
-                            scanError = error.localizedDescription
-                        }
-                        isScanning = false
+                        await viewModel.startScan()
                         await appState.refresh()
                     }
                 }) {
@@ -90,17 +77,17 @@ struct ScanPanel: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(isScanning || !appState.scannerAvailable)
+                .disabled(viewModel.isScanning || !appState.scannerAvailable)
             }
             
-            if let error = scanError {
+            if let error = viewModel.scanError {
                 Section {
                     Text(error)
                         .foregroundColor(.red)
                 }
             }
             
-            if let url = lastScanURL {
+            if let url = viewModel.lastScanURL {
                 Section("Last Scan") {
                     HStack {
                         Text(url.lastPathComponent)

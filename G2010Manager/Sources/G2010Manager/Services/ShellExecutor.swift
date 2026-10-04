@@ -23,6 +23,9 @@ public enum ShellError: LocalizedError {
 }
 
 public enum ShellExecutor {
+    /// Seconds between SIGTERM and SIGKILL when a command times out.
+    static let killGracePeriod: TimeInterval = 2
+
     /// Thread-safe flag for timeout tracking
     private final class TimeoutFlag: @unchecked Sendable {
         private var _value: Bool = false
@@ -93,6 +96,14 @@ public enum ShellExecutor {
                         if process.isRunning {
                             timedOut.value = true
                             process.terminate()
+                            // SIGTERM can be ignored/trapped; escalate so
+                            // waitUntilExit() below cannot hang forever.
+                            let pid = process.processIdentifier
+                            DispatchQueue.global().asyncAfter(deadline: .now() + killGracePeriod) {
+                                if process.isRunning {
+                                    kill(pid, SIGKILL)
+                                }
+                            }
                         }
                     }
                     
@@ -135,3 +146,25 @@ public enum ShellExecutor {
         return try await run("/bin/bash", arguments: ["-c", command], environment: environment, timeout: timeout)
     }
 }
+
+/// Default implementation of ShellExecuting adapting ShellExecutor
+public struct DefaultShellExecutor: ShellExecuting {
+    public init() {}
+    
+    public func run(
+        _ executable: String,
+        arguments: [String],
+        environment: [String: String]?,
+        timeout: TimeInterval,
+        outputFile: URL?
+    ) async throws -> ShellResult {
+        try await ShellExecutor.run(
+            executable,
+            arguments: arguments,
+            environment: environment,
+            timeout: timeout,
+            outputFile: outputFile
+        )
+    }
+}
+

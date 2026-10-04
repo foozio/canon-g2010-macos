@@ -3,51 +3,47 @@ import G2010ManagerCore
 import AppKit
 
 struct TroubleshootPanel: View {
-    @Environment(AppState.self) private var appState
-    @State private var resultMessage: String?
-    @State private var resultIsError = false
+    @Bindable var viewModel: TroubleshootViewModel
     
     var body: some View {
+        let appState = viewModel.appState
         Form {
-            if let msg = resultMessage {
+            if let msg = viewModel.resultMessage {
                 Section {
                     Text(msg)
-                        .foregroundColor(resultIsError ? .red : .green)
+                        .foregroundColor(viewModel.resultIsError ? .red : .green)
                 }
             }
             
             Section("Quick Fix Actions") {
                 Button("Clear Stuck Jobs") {
                     Task {
-                        await runFix("Cleared stuck jobs.") {
-                            try await CUPSService.cancelAll()
-                        }
+                        await viewModel.clearStuckJobs()
                     }
                 }
+                .disabled(viewModel.isExecuting)
+                
                 Button("Reinstall Print Queue") {
                     Task {
-                        await runFix("Reinstalled print queue.") {
-                            try await CUPSService.ensureQueue()
-                        }
-                        await appState.refresh()
+                        // Force reinstall queue: CUPSService.ensureQueue(force: true)
+                        await viewModel.reinstallQueue()
                     }
                 }
+                .disabled(viewModel.isExecuting)
+                
                 Button("Restart Print Server") {
                     Task {
-                        await runFix("Restarted print server.") {
-                            try await appState.printServer.restart()
-                        }
-                        await appState.refresh()
+                        await viewModel.restartServer()
                     }
                 }
+                .disabled(viewModel.isExecuting)
+                
                 Button("Remove Stale Canon Queues") {
                     Task {
-                        await runFix("Removed stale queues.") {
-                            try await CUPSService.removeStaleQueues()
-                        }
-                        await appState.refresh()
+                        await viewModel.removeStaleQueues()
                     }
                 }
+                .disabled(viewModel.isExecuting)
             }
             
             Section("Server Log") {
@@ -80,23 +76,7 @@ struct TroubleshootPanel: View {
             }
         }
         .onAppear {
-            appState.logService.startTailing()
-        }
-        .onDisappear {
-            appState.logService.stopTailing()
-        }
-    }
-
-    /// Run a quick fix and report its real outcome (TASK-010): green only on
-    /// success, red with the error on failure — never unconditional success.
-    private func runFix(_ successMessage: String, _ action: () async throws -> Void) async {
-        do {
-            try await action()
-            resultMessage = successMessage
-            resultIsError = false
-        } catch {
-            resultMessage = "Failed: \(error.localizedDescription)"
-            resultIsError = true
+            appState.logService.refreshIfRotated()
         }
     }
 }

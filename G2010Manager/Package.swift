@@ -22,7 +22,7 @@ let package = Package(
             name: "G2010Manager",
             dependencies: ["G2010ManagerCore"],
             path: "Sources/G2010Manager",
-            exclude: ["Models", "Services", "App/AppState.swift"]
+            exclude: ["Models", "Services", "Protocols", "Commands", "ViewModels", "Coordinators", "DI", "App/AppState.swift"]
         ),
         .testTarget(
             name: "G2010ManagerTests",

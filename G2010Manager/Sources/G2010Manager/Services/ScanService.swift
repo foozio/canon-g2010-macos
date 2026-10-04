@@ -1,8 +1,14 @@
 import Foundation
 
-public actor ScanService {
-    private(set) var isScanning = false
-    private let runtime = RuntimeManager.shared
+public actor ScanService: ScanServiceProtocol {
+    public private(set) var isScanning = false
+    private let runtime: RuntimeManaging
+    private let shell: ShellExecuting
+    
+    public init(runtime: RuntimeManaging = RuntimeManager.shared, shell: ShellExecuting = DefaultShellExecutor()) {
+        self.runtime = runtime
+        self.shell = shell
+    }
 
     /// Scanner device override for sibling models or test rigs.
     private var deviceOverride: String? {
@@ -30,7 +36,7 @@ public actor ScanService {
         if let override = deviceOverride {
             return override
         }
-        if let listing = try? await ShellExecutor.run(
+        if let listing = try? await shell.run(
             scanimageExecutable,
             arguments: ["-L"],
             environment: runtime.scanEnvironment,
@@ -47,7 +53,7 @@ public actor ScanService {
         if deviceOverride != nil {
             return true
         }
-        guard let listing = try? await ShellExecutor.run(
+        guard let listing = try? await shell.run(
             scanimageExecutable,
             arguments: ["-L"],
             environment: runtime.scanEnvironment,
@@ -75,7 +81,7 @@ public actor ScanService {
         let outputURL = settings.outputFileURL()
         let device = await resolveDevice()
         
-        let result = try await ShellExecutor.run(
+        let result = try await shell.run(
             scanimageExecutable,
             arguments: [
                 "-d", device,

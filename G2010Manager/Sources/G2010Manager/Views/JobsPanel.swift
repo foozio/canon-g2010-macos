@@ -2,9 +2,10 @@ import SwiftUI
 import G2010ManagerCore
 
 struct JobsPanel: View {
-    @Environment(AppState.self) private var appState
+    @Bindable var viewModel: JobsViewModel
     
     var body: some View {
+        let appState = viewModel.appState
         VStack {
             ErrorBanner()
             
@@ -19,22 +20,17 @@ struct JobsPanel: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                Table(appState.activeJobs) {
-                    // No "Document" column: lpstat exposes no job titles
-                    // (verified against -l output), so the job ID is the
-                    // best-available title — shown once, honestly labeled.
+                Table(appState.activeJobs, selection: $viewModel.selection) {
                     TableColumn("Job ID", value: \.id)
                     TableColumn("Owner", value: \.owner)
                     TableColumn("Status", value: \.status)
                     TableColumn("Size") { job in Text(job.size ?? "") }
                 }
-                .contextMenu(forSelectionType: String.self) { selection in
-                    if let id = selection.first {
-                        Button("Cancel Job", role: .destructive) {
+                .contextMenu(forSelectionType: PrintJob.ID.self) { ids in
+                    if !ids.isEmpty {
+                        Button(ids.count == 1 ? "Cancel Job" : "Cancel \(ids.count) Jobs", role: .destructive) {
                             Task {
-                                await appState.perform("Cancel job") {
-                                    try await CUPSService.cancelJob(id: id)
-                                }
+                                await viewModel.cancelSelected()
                             }
                         }
                     }
@@ -45,7 +41,7 @@ struct JobsPanel: View {
         .toolbar {
             ToolbarItem {
                 Button(action: {
-                    Task { await appState.refresh() }
+                    Task { await viewModel.refresh() }
                 }) {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
@@ -53,16 +49,14 @@ struct JobsPanel: View {
             ToolbarItem {
                 Button("Cancel All", role: .destructive) {
                     Task {
-                        await appState.perform("Cancel all jobs") {
-                            try await CUPSService.cancelAll()
-                        }
+                        await viewModel.cancelAll()
                     }
                 }
                 .disabled(appState.activeJobs.isEmpty)
             }
         }
         .onAppear {
-            Task { await appState.refresh() }
+            Task { await viewModel.refresh() }
         }
     }
 }

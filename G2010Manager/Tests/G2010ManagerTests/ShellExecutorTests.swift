@@ -39,4 +39,22 @@ final class ShellExecutorTests: XCTestCase {
             }
         }
     }
+
+    /// A child that ignores SIGTERM must still be reaped (SIGKILL escalation)
+    /// instead of hanging the continuation forever.
+    func testTimeoutEscalatesWhenSIGTERMIgnored() async throws {
+        let start = Date()
+        do {
+            _ = try await ShellExecutor.run(
+                "/bin/bash", arguments: ["-c", "trap '' TERM; while :; do sleep 0.2; done"], timeout: 1
+            )
+            XCTFail("expected a timeout error")
+        } catch let error as ShellError {
+            guard case .timeout = error else {
+                XCTFail("wrong ShellError: \(error)")
+                return
+            }
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(start), 1 + ShellExecutor.killGracePeriod + 5)
+    }
 }

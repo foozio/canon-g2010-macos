@@ -85,6 +85,35 @@ assert_contains "$RUNTIME" 'template: "@HOME@"'
 assert_contains "$RUNTIME" 'GP_FILTER=\"$HOME/gp/cupsexec/filter/rastertogutenprint.5.3\"'
 assert_not_contains "$RUNTIME" '/Users/foozio'
 
+# 4c. Bundled-runtime preference (single owner across both installers): the
+#     app's RuntimeManager and printserver-control.sh must substitute the SAME
+#     literals in the SAME order — runtime bin/ first, Homebrew/~/gp fallback —
+#     so a GUI restart (controller reinstall) never undoes the app's install.
+CONTROL="$ROOT/harness/printserver-control.sh"
+#     Launcher: quoted ippeveprinter literal (substituted paths contain spaces).
+assert_contains "$LAUNCHER" 'exec "/opt/homebrew/opt/cups/bin/ippeveprinter"'
+#     Pipeline: empty STP_DATA_PATH template, exported only when set.
+assert_contains "$PIPELINE" 'STP_DATA_PATH=""'
+assert_contains "$PIPELINE" '[ -n "$STP_DATA_PATH" ] && export STP_DATA_PATH'
+#     RuntimeManager side.
+assert_contains "$RUNTIME" 'static let ippeveprinterFallbackPath = "/opt/homebrew/opt/cups/bin/ippeveprinter"'
+assert_contains "$RUNTIME" '/gp/cupsexec/filter/rastertogutenprint.5.3'
+assert_contains "$RUNTIME" 'binDir.appendingPathComponent("ippeveprinter")'
+assert_contains "$RUNTIME" 'binDir.appendingPathComponent("rastertogutenprint.5.3")'
+assert_contains "$RUNTIME" 'shareDir.appendingPathComponent("gutenprint/5.3/xml"'
+assert_contains "$RUNTIME" 'template: "STP_DATA_PATH=\"\""'
+assert_contains "$RUNTIME" 'isExecutableFile'
+assert_contains "$RUNTIME" 'selectPPDSource'
+#     Controller side.
+assert_contains "$CONTROL" 'IPPEVE_FALLBACK="/opt/homebrew/opt/cups/bin/ippeveprinter"'
+assert_contains "$CONTROL" '[ -x "$RUNTIME_DIR/bin/ippeveprinter" ]'
+assert_contains "$CONTROL" '[ -x "$RUNTIME_DIR/bin/rastertogutenprint.5.3" ]'
+assert_contains "$CONTROL" '$HOME/gp/cupsexec/filter/rastertogutenprint.5.3'
+assert_contains "$CONTROL" 'xml_dir="$RUNTIME_DIR/share/gutenprint/5.3/xml"'
+assert_contains "$CONTROL" "s|^GP_FILTER=.*|"
+assert_contains "$CONTROL" "s|^STP_DATA_PATH=.*|"
+assert_contains "$CONTROL" 's|^\*cupsFilter:.*|'
+
 # 5. The packager bundles the pristine sources for DMG installs.
 assert_contains "$PACKAGING" 'mkdir -p "$RUNTIME_DIR/source"'
 assert_contains "$PACKAGING" 'harness/printserver-control.sh" "$RUNTIME_DIR/source/"'
@@ -114,6 +143,14 @@ if grep -rn "pkill" "$ROOT/G2010Manager/Sources/G2010Manager/Services/" | grep -
 fi
 assert_contains "$ROOT/G2010Manager/Sources/G2010Manager/Services/PrintServerService.swift" "printserver-control"
 assert_contains "$ROOT/G2010Manager/Sources/G2010Manager/Services/PrintServerService.swift" 'arguments: [command]'
+
+# 7b. Queue reinstall semantics: explicit "Reinstall Queue" buttons force a
+#     recreate; the automatic restart path converges (keeps in-flight jobs).
+VIEWS="$ROOT/G2010Manager/Sources/G2010Manager/Views"
+assert_contains "$VIEWS/PrintServerPanel.swift" 'CUPSService.ensureQueue(force: true)'
+assert_contains "$VIEWS/TroubleshootPanel.swift" 'CUPSService.ensureQueue(force: true)'
+assert_contains "$ROOT/G2010Manager/Sources/G2010Manager/Services/PrintServerService.swift" 'try await CUPSService.ensureQueue()'
+assert_not_contains "$VIEWS/TroubleshootPanel.swift" 'stopTailing'
 assert_contains "$PACKAGING" 'harness/printserver-control.sh" "$RUNTIME_DIR/source/"'
 
 # 8. TASK-011 acceptance 1: no hardcoded author home in tracked files

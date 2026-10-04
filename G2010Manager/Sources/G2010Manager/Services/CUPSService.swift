@@ -71,14 +71,24 @@ public enum CUPSService {
         lpstatOutput.components(separatedBy: .newlines).compactMap(parseJobLine)
     }
     
-    /// Cancel a specific job
+    /// Cancel a specific job. ShellExecutor returns nonzero exits instead of
+    /// throwing, so check the result — otherwise the UI reports success on a
+    /// failed cancel.
     public static func cancelJob(id: String) async throws {
-        _ = try await ShellExecutor.run(cancelBin, arguments: [id], timeout: 10)
+        let result = try await ShellExecutor.run(cancelBin, arguments: [id], timeout: 10)
+        try requireSuccess(result, command: "cancel \(id)")
     }
     
     /// Cancel all jobs
     public static func cancelAll() async throws {
-        _ = try await ShellExecutor.run(cancelBin, arguments: ["-a", queueName], timeout: 10)
+        let result = try await ShellExecutor.run(cancelBin, arguments: ["-a", queueName], timeout: 10)
+        try requireSuccess(result, command: "cancel -a \(queueName)")
+    }
+
+    private static func requireSuccess(_ result: ShellResult, command: String) throws {
+        guard result.succeeded else {
+            throw ShellError.executionFailed(command: command, exitCode: result.exitCode, stderr: result.stderr)
+        }
     }
     
     /// Check if queue exists
@@ -91,9 +101,31 @@ public enum CUPSService {
     public static func getQueueStatus() async throws -> (enabled: Bool, status: String) {
         let result = try await ShellExecutor.run(lpstat, arguments: ["-p", queueName], timeout: 10)
         let stdout = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        let enabled = stdout.contains("is idle") || stdout.contains("is printing")
+        let enabled = parseQueueEnabled(stdout, succeeded: result.succeeded)
         return (enabled, stdout)
+    }
+
+    /// Decide whether `lpstat -p <queue>` reports an enabled queue. Pure +
+    /// internal for unit tests. A queue is enabled unless lpstat failed (no
+    /// such queue / no output) or the line says "disabled". Known enabled
+    /// phrasings: "is idle.  enabled since …", "now printing <job>.  enabled
+    /// since …" (macOS), "is printing" (older CUPS). Treating a busy queue as
+    /// disabled made ensureQueue() recreate it and drop in-flight jobs.
+    static func parseQueueEnabled(_ lpstatOutput: String, succeeded: Bool = true) -> Bool {
+        // Only the status line counts: indented reason lines that follow
+        // (printer-state-message) may contain arbitrary words.
+        let statusLine = lpstatOutput.components(separatedBy: .newlines)
+            .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }?
+            .lowercased() ?? ""
+        guard succeeded, !statusLine.isEmpty else { return false }
+        if statusLine.contains("disabled") { return false }
+        if statusLine.contains("enabled since") || statusLine.contains("is idle")
+            || statusLine.contains("now printing") || statusLine.contains("is printing") {
+            return true
+        }
+        // Unknown but successful phrasing: lpstat only says "disabled" when
+        // the queue is paused, so default to enabled rather than recreating.
+        return true
     }
     
     /// Create/reinstall the queue. Converges by default: a healthy queue
@@ -107,8 +139,10 @@ public enum CUPSService {
             return
         }
         _ = try? await ShellExecutor.run(lpadmin, arguments: ["-x", queueName], timeout: 10)
-        _ = try await ShellExecutor.run(lpadmin, arguments: ["-p", queueName, "-E", "-v", ippURI, "-m", "everywhere"], timeout: 30)
-        _ = try await ShellExecutor.run(lpoptions, arguments: ["-d", queueName], timeout: 10)
+        let create = try await ShellExecutor.run(lpadmin, arguments: ["-p", queueName, "-E", "-v", ippURI, "-m", "everywhere"], timeout: 30)
+        try requireSuccess(create, command: "lpadmin -p \(queueName)")
+        let setDefault = try await ShellExecutor.run(lpoptions, arguments: ["-d", queueName], timeout: 10)
+        try requireSuccess(setDefault, command: "lpoptions -d \(queueName)")
     }
 
     /// Recreate decision as pure logic (unit-tested truth table): only a

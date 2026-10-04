@@ -1,7 +1,7 @@
 import Foundation
 
 @Observable
-public final class LogService {
+public final class LogService: LogServiceProtocol {
     public private(set) var logLines: [String] = []
     private var fileHandle: FileHandle?
     private var source: DispatchSourceFileSystemObject?
@@ -30,11 +30,17 @@ public final class LogService {
         self.fileHandle = handle
         self.tailedInode = Self.inode(ofPath: logFilePath)
         
-        // Read existing
+        // Read existing. @Observable state is mutated on the main thread
+        // only: synchronously when already there (app/tests), else hopped —
+        // same rule as the append path below.
         let initialData = handle.readDataToEndOfFile()
         if let str = String(data: initialData, encoding: .utf8) {
-            let lines = str.components(separatedBy: .newlines).filter { !$0.isEmpty }
-            logLines = Array(lines.suffix(maxLines))
+            let lines = Array(str.components(separatedBy: .newlines).filter { !$0.isEmpty }.suffix(maxLines))
+            if Thread.isMainThread {
+                logLines = lines
+            } else {
+                DispatchQueue.main.async { self.logLines = lines }
+            }
         }
         
         let fd = handle.fileDescriptor

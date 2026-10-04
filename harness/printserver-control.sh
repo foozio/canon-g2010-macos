@@ -91,6 +91,31 @@ install_agent() {
   plutil -lint "$PLIST_DEST" >/dev/null
 }
 
+IPPEVE_FALLBACK="/opt/homebrew/opt/cups/bin/ippeveprinter"
+
+# Escape a value for the replacement side of a `s|...|...|` sed expression.
+sed_escape() {
+  printf '%s' "$1" | sed -e 's/[\\|&]/\\&/g'
+}
+
+# ippeveprinter to launch: the runtime's own copy when present, else Homebrew.
+runtime_ippeveprinter() {
+  if [ -x "$RUNTIME_DIR/bin/ippeveprinter" ]; then
+    printf '%s\n' "$RUNTIME_DIR/bin/ippeveprinter"
+  else
+    printf '%s\n' "$IPPEVE_FALLBACK"
+  fi
+}
+
+# Gutenprint raster filter: the runtime's own copy when present, else ~/gp.
+runtime_gp_filter() {
+  if [ -x "$RUNTIME_DIR/bin/rastertogutenprint.5.3" ]; then
+    printf '%s\n' "$RUNTIME_DIR/bin/rastertogutenprint.5.3"
+  else
+    printf '%s\n' "$HOME/gp/cupsexec/filter/rastertogutenprint.5.3"
+  fi
+}
+
 install_runtime() {
   local source
   for source in "$START_SOURCE" "$PIPELINE_SOURCE" "$PPD_SOURCE"; do
@@ -105,10 +130,29 @@ install_runtime() {
   cp "$PIPELINE_SOURCE" "$RUNTIME_DIR/print-pipeline.sh"
   cp "$PPD_SOURCE" "$RUNTIME_DIR/stp-bjc-G2000-series.5.3.ppd"
   chmod 755 "$RUNTIME_DIR/start-printserver.sh" "$RUNTIME_DIR/print-pipeline.sh"
+
+  # Path preference (single owner, mirrored by RuntimeManager.swift — keep
+  # both in the same order): binaries already installed into the runtime
+  # (DMG / app-copied layout: $RUNTIME_DIR/bin) win; Homebrew CUPS and the
+  # ~/gp Gutenprint build are the dev-checkout fallbacks.
+  local ippeve gp_filter xml_dir
+  ippeve=$(runtime_ippeveprinter)
+  gp_filter=$(runtime_gp_filter)
+  if [ "$ippeve" != "$IPPEVE_FALLBACK" ]; then
+    sed -i '' "s|$IPPEVE_FALLBACK|$(sed_escape "$ippeve")|g" "$RUNTIME_DIR/start-printserver.sh"
+  fi
+  sed -i '' 's|^GP_FILTER=.*|GP_FILTER="'"$(sed_escape "$gp_filter")"'"|' "$RUNTIME_DIR/print-pipeline.sh"
   # Portable filter path (TASK-011): the generated PPD bakes in its builder's
-  # absolute filter location — repoint at this machine's ~/gp build (docs/06).
-  sed -i '' 's|^\*cupsFilter:.*|*cupsFilter: "application/vnd.cups-raster 100 '"$HOME"'/gp/cupsexec/filter/rastertogutenprint.5.3"|' \
+  # absolute filter location — repoint at the chosen filter (docs/06).
+  sed -i '' 's|^\*cupsFilter:.*|*cupsFilter: "application/vnd.cups-raster 100 '"$(sed_escape "$gp_filter")"'"|' \
     "$RUNTIME_DIR/stp-bjc-G2000-series.5.3.ppd"
+
+  # Relocated (bundled) Gutenprint needs its XML data dir spelled out; the
+  # ~/gp build's compiled-in prefix suffices, so only set it when present.
+  xml_dir="$RUNTIME_DIR/share/gutenprint/5.3/xml"
+  if [ -d "$xml_dir" ]; then
+    sed -i '' 's|^STP_DATA_PATH=.*|STP_DATA_PATH="'"$(sed_escape "$xml_dir")"'"|' "$RUNTIME_DIR/print-pipeline.sh"
+  fi
 
   # Privacy (TASK-003): the spool holds user document bytes and the server
   # log echoes job metadata — lock the tree down (owner-only). New spool/log

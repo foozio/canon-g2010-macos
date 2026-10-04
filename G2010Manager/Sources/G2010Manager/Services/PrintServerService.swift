@@ -1,8 +1,14 @@
 import Foundation
 import Network
 
-public actor PrintServerService {
-    private let runtime = RuntimeManager.shared
+public actor PrintServerService: PrintServerServiceProtocol {
+    private let runtime: RuntimeManaging
+    private let shell: ShellExecuting
+    
+    public init(runtime: RuntimeManaging = RuntimeManager.shared, shell: ShellExecuting = DefaultShellExecutor()) {
+        self.runtime = runtime
+        self.shell = shell
+    }
     
     /// Thread-safe flag for connection state callbacks
     private final class CompletionFlag: @unchecked Sendable {
@@ -71,7 +77,7 @@ public actor PrintServerService {
     /// Run the lifecycle controller (argv-form, never shell-string) and throw
     /// its stderr on failure so the GUI can surface it instead of swallowing.
     private func runController(_ command: String, timeout: TimeInterval) async throws {
-        let result = try await ShellExecutor.run(
+        let result = try await shell.run(
             runtime.controllerURL.path,
             arguments: [command],
             environment: controllerEnvironment,
@@ -92,8 +98,18 @@ public actor PrintServerService {
         //    guarded kill → reinstall → bootstrap → kickstart → wait).
         try await runController("restart", timeout: 90)
 
-        // 3. Ensure system CUPS queue is registered.
-        try? await CUPSService.ensureQueue()
+        // 3. Ensure system CUPS queue is registered. Non-force (converge) on
+        //    purpose: automatic restarts must not wipe in-flight jobs — only
+        //    the explicit "Reinstall Queue" actions pass force: true. Errors
+        //    propagate so the GUI's errorMessage shows them (the server itself
+        //    is already up at this point).
+        do {
+            try await CUPSService.ensureQueue()
+        } catch {
+            throw NSError(domain: "G2010Manager", code: 20, userInfo: [
+                NSLocalizedDescriptionKey: "Print server started, but registering the CUPS queue failed: \(error.localizedDescription)"
+            ])
+        }
     }
 
     /// Stop via the tested controller (bootout + guarded orphan kill only).
@@ -103,8 +119,13 @@ public actor PrintServerService {
     
     /// Get launchd service info
     public func getServiceInfo() async throws -> String {
-        let result = try await ShellExecutor.run("/bin/launchctl", arguments: ["print", "gui/\(uid)/\(runtime.agentLabel)"], timeout: 10)
+        let result = try await shell.run("/bin/launchctl", arguments: ["print", "gui/\(uid)/\(runtime.agentLabel)"], timeout: 10)
         return result.stdout
+    }
+    
+    /// Service info conforming to PrintServerServiceProtocol
+    public func serviceInfo() async -> String {
+        (try? await getServiceInfo()) ?? ""
     }
     
     /// Get current UID

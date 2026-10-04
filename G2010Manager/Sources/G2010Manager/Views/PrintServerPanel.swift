@@ -2,17 +2,10 @@ import SwiftUI
 import G2010ManagerCore
 
 struct PrintServerPanel: View {
-    @Environment(AppState.self) private var appState
-    @State private var isStarting = false
-    @State private var isStopping = false
-    @State private var isRestarting = false
-    @State private var isReinstalling = false
-    @State private var serviceInfo: String = ""
-    @State private var isInfoExpanded = false
-    @State private var manifestText: String? = nil
-    @State private var isManifestExpanded = false
+    @Bindable var viewModel: PrintServerViewModel
     
     var body: some View {
+        let appState = viewModel.appState
         Form {
             ErrorBanner()
             
@@ -22,35 +15,23 @@ struct PrintServerPanel: View {
             
             Section("Controls") {
                 HStack {
-                    ActionButton(title: "Start", icon: "play.fill", isLoading: isStarting) {
+                    ActionButton(title: "Start", icon: "play.fill", isLoading: viewModel.isStarting) {
                         Task {
-                            isStarting = true
-                            await appState.perform("Start print server") {
-                                try await appState.printServer.restart()
-                            }
-                            isStarting = false
+                            await viewModel.start()
                         }
                     }
                     .disabled(appState.serverStatus == .running)
                     
-                    ActionButton(title: "Stop", icon: "stop.fill", role: .destructive, isLoading: isStopping) {
+                    ActionButton(title: "Stop", icon: "stop.fill", role: .destructive, isLoading: viewModel.isStopping) {
                         Task {
-                            isStopping = true
-                            await appState.perform("Stop print server") {
-                                try await appState.printServer.stop()
-                            }
-                            isStopping = false
+                            await viewModel.stop()
                         }
                     }
                     .disabled(appState.serverStatus != .running)
                     
-                    ActionButton(title: "Restart", icon: "arrow.clockwise", isLoading: isRestarting) {
+                    ActionButton(title: "Restart", icon: "arrow.clockwise", isLoading: viewModel.isRestarting) {
                         Task {
-                            isRestarting = true
-                            await appState.perform("Restart print server") {
-                                try await appState.printServer.restart()
-                            }
-                            isRestarting = false
+                            await viewModel.restart()
                         }
                     }
                 }
@@ -58,21 +39,18 @@ struct PrintServerPanel: View {
             
             Section("Print Queue") {
                 Text("Queue Status: \(appState.queueStatus)")
-                ActionButton(title: "Reinstall Queue", icon: "wrench", isLoading: isReinstalling) {
+                ActionButton(title: "Reinstall Queue", icon: "wrench", isLoading: viewModel.isReinstalling) {
                     Task {
-                        isReinstalling = true
-                        await appState.perform("Reinstall queue") {
-                            try await CUPSService.ensureQueue()
-                        }
-                        isReinstalling = false
+                        // Force reinstall queue: CUPSService.ensureQueue(force: true)
+                        await viewModel.reinstallQueue()
                     }
                 }
             }
             
             Section("Service Info") {
-                DisclosureGroup(isExpanded: $isInfoExpanded) {
+                DisclosureGroup(isExpanded: $viewModel.isInfoExpanded) {
                     ScrollView {
-                        Text(serviceInfo)
+                        Text(viewModel.serviceInfo)
                             .font(.system(.caption, design: .monospaced))
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -80,19 +58,19 @@ struct PrintServerPanel: View {
                 } label: {
                     Text("View Service Info")
                 }
-                .onChange(of: isInfoExpanded) { old, new in
-                    if new && serviceInfo.isEmpty {
+                .onChange(of: viewModel.isInfoExpanded) { _, new in
+                    if new && viewModel.serviceInfo.isEmpty {
                         Task {
-                            serviceInfo = (try? await appState.printServer.getServiceInfo()) ?? "Unknown"
+                            await viewModel.loadServiceInfo()
                         }
                     }
                 }
             }
             
             Section("Build Manifest") {
-                DisclosureGroup(isExpanded: $isManifestExpanded) {
+                DisclosureGroup(isExpanded: $viewModel.isManifestExpanded) {
                     ScrollView {
-                        Text(manifestText ?? "Loading…")
+                        Text(viewModel.manifestText ?? "Loading…")
                             .font(.system(.caption, design: .monospaced))
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -100,10 +78,12 @@ struct PrintServerPanel: View {
                 } label: {
                     Text("View Build Provenance")
                 }
-                .onChange(of: isManifestExpanded) { old, new in
-                    if new && manifestText == nil {
-                        manifestText = RuntimeManager.shared.readInstalledManifest()
-                            ?? "Not available — this runtime was not installed from a packaged DMG (see runtime/manifest.json)."
+                .onChange(of: viewModel.isManifestExpanded) { _, new in
+                    if new && viewModel.manifestText == nil {
+                        viewModel.loadManifest()
+                        if viewModel.manifestText == nil {
+                            viewModel.manifestText = "Not available — this runtime was not installed from a packaged DMG (see runtime/manifest.json)."
+                        }
                     }
                 }
             }

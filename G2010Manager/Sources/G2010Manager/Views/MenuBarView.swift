@@ -3,9 +3,11 @@ import G2010ManagerCore
 
 struct MenuBarView: View {
     @Environment(AppState.self) private var appState
+    @Environment(AppCoordinator.self) private var coordinator
     @Environment(\.openWindow) private var openWindow
     
     var body: some View {
+        let viewModel = MenuBarViewModel(appState: appState)
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Image(systemName: "printer.fill")
@@ -15,19 +17,15 @@ struct MenuBarView: View {
             }
             
             HStack {
-                StatusBadge(title: "Server: \(appState.serverStatus.label)", statusColor: appState.serverStatus.color, icon: appState.serverStatus.icon)
+                StatusBadge(
+                    title: "Server: \(appState.serverStatus.label)",
+                    statusColor: appState.serverStatus.color,
+                    icon: appState.serverStatus.icon
+                )
                 Spacer()
                 Button(appState.serverStatus == .running ? "Stop" : "Start") {
                     Task {
-                        if appState.serverStatus == .running {
-                            await appState.perform("Stop print server") {
-                                try await appState.printServer.stop()
-                            }
-                        } else {
-                            await appState.perform("Start print server") {
-                                try await appState.printServer.restart()
-                            }
-                        }
+                        await viewModel.toggleServer()
                     }
                 }
                 .buttonStyle(.bordered)
@@ -44,10 +42,12 @@ struct MenuBarView: View {
             
             HStack {
                 Button("Scan") {
+                    coordinator.navigate(to: .scan)
                     openWindow(id: "main")
                 }
                 Spacer()
                 Button("Open Manager") {
+                    coordinator.navigate(to: .dashboard)
                     openWindow(id: "main")
                 }
             }

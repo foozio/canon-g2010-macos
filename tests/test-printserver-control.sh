@@ -29,8 +29,15 @@ make_fixture() {
   mkdir -p "$dir/bin" "$dir/home/Library/LaunchAgents"
   : > "$dir/events"
   [ -e "$dir/server.log" ] || : > "$dir/server.log"
-  printf '#!/bin/bash\n' > "$dir/start-source.sh"
-  printf '#!/bin/bash\n' > "$dir/pipeline-source.sh"
+  # FIXTURE_REAL_SOURCES=1 installs the real checked-in launcher/pipeline so
+  # path substitutions can be asserted against the actual template literals.
+  if [ "${FIXTURE_REAL_SOURCES:-0}" = 1 ]; then
+    cp "$ROOT/harness/start-printserver.sh" "$dir/start-source.sh"
+    cp "$ROOT/harness/print-pipeline.sh" "$dir/pipeline-source.sh"
+  else
+    printf '#!/bin/bash\n' > "$dir/start-source.sh"
+    printf '#!/bin/bash\n' > "$dir/pipeline-source.sh"
+  fi
   printf '%s\n' "$plist_content" > "$dir/source.plist"
   printf '%s\n' "$ppd_content" > "$dir/source.ppd"
 
@@ -102,7 +109,7 @@ EOF
   KILL_BIN="$dir/bin/kill" \
   PRINTSERVER_PLIST_SOURCE="$dir/source.plist" \
   PRINTSERVER_LOG="$dir/server.log" \
-  PRINTSERVER_RUNTIME_DIR="$dir/runtime" \
+  PRINTSERVER_RUNTIME_DIR="${FIXTURE_RUNTIME_DIR:-$dir/runtime}" \
   PRINTSERVER_START_SOURCE="$dir/start-source.sh" \
   PRINTSERVER_PIPELINE_SOURCE="$dir/pipeline-source.sh" \
   PRINTSERVER_PPD_SOURCE="$dir/source.ppd" \
@@ -233,6 +240,57 @@ test_install_rewrites_ppds_filter_path() {
   assert_contains "$TEST_TMP/ppdfilter/runtime/stp-bjc-G2000-series.5.3.ppd" "$TEST_TMP/ppdfilter/home/gp/cupsexec/filter/rastertogutenprint.5.3"
 }
 
+# DMG layout: the app already copied bin/ippeveprinter + the Gutenprint
+# filter + XML data into the runtime dir. A GUI restart (controller reinstall)
+# must keep using them — never clobber back to Homebrew / ~/gp. The runtime
+# path deliberately contains a space, like "~/Library/Application Support".
+test_install_prefers_bundled_runtime_binaries() {
+  local rt="$TEST_TMP/bundled/App Support/G2010PrintServer"
+  mkdir -p "$rt/bin" "$rt/share/gutenprint/5.3/xml"
+  printf '#!/bin/sh\n' > "$rt/bin/ippeveprinter"
+  printf '#!/bin/sh\n' > "$rt/bin/rastertogutenprint.5.3"
+  chmod 755 "$rt/bin/ippeveprinter" "$rt/bin/rastertogutenprint.5.3"
+  FIXTURE_REAL_SOURCES=1 FIXTURE_RUNTIME_DIR="$rt" \
+    make_fixture bundled success loopback restart '<plist><dict/></plist>' \
+    '*cupsFilter: "application/vnd.cups-raster 100 /WRONG/place/rastertogutenprint.5.3"'
+
+  local launcher="$rt/start-printserver.sh" pipeline="$rt/print-pipeline.sh" ppd="$rt/stp-bjc-G2000-series.5.3.ppd"
+  assert_contains "$launcher" "exec \"$rt/bin/ippeveprinter\""
+  assert_not_contains "$launcher" "/opt/homebrew/opt/cups/bin/ippeveprinter"
+  assert_contains "$pipeline" "GP_FILTER=\"$rt/bin/rastertogutenprint.5.3\""
+  assert_not_contains "$pipeline" "/gp/cupsexec/filter"
+  assert_contains "$pipeline" "STP_DATA_PATH=\"$rt/share/gutenprint/5.3/xml\""
+  assert_contains "$ppd" "*cupsFilter: \"application/vnd.cups-raster 100 $rt/bin/rastertogutenprint.5.3\""
+  assert_not_contains "$ppd" "/WRONG/place"
+  bash -n "$launcher" || fail "installed launcher is not valid bash"
+  bash -n "$pipeline" || fail "installed pipeline is not valid bash"
+}
+
+# Dev checkout: no runtime bin/ — keep today's Homebrew + ~/gp fallbacks and
+# leave STP_DATA_PATH empty (compiled-in prefix suffices).
+test_install_falls_back_to_homebrew_and_gp() {
+  local rt="$TEST_TMP/devfallback/runtime"
+  FIXTURE_REAL_SOURCES=1 make_fixture devfallback success loopback restart '<plist><dict/></plist>' \
+    '*cupsFilter: "application/vnd.cups-raster 100 /WRONG/place/rastertogutenprint.5.3"'
+  assert_contains "$rt/start-printserver.sh" 'exec "/opt/homebrew/opt/cups/bin/ippeveprinter"'
+  assert_contains "$rt/print-pipeline.sh" "GP_FILTER=\"$TEST_TMP/devfallback/home/gp/cupsexec/filter/rastertogutenprint.5.3\""
+  assert_contains "$rt/print-pipeline.sh" 'STP_DATA_PATH=""'
+  assert_contains "$rt/stp-bjc-G2000-series.5.3.ppd" "$TEST_TMP/devfallback/home/gp/cupsexec/filter/rastertogutenprint.5.3"
+}
+
+# A non-executable bin/ entry must not be chosen (same rule as the app's
+# isExecutableFile check), so a half-copied runtime falls back cleanly.
+test_install_ignores_non_executable_bundled_binaries() {
+  local rt="$TEST_TMP/noexec/runtime"
+  mkdir -p "$rt/bin"
+  printf '#!/bin/sh\n' > "$rt/bin/ippeveprinter"
+  printf '#!/bin/sh\n' > "$rt/bin/rastertogutenprint.5.3"
+  chmod 644 "$rt/bin/ippeveprinter" "$rt/bin/rastertogutenprint.5.3"
+  FIXTURE_REAL_SOURCES=1 make_fixture noexec success
+  assert_contains "$rt/start-printserver.sh" '/opt/homebrew/opt/cups/bin/ippeveprinter'
+  assert_contains "$rt/print-pipeline.sh" "$TEST_TMP/noexec/home/gp/cupsexec/filter/rastertogutenprint.5.3"
+}
+
 test_rotates_oversized_server_log() {
   make_fixture logrot success
   dd if=/dev/zero of="$TEST_TMP/logrot/server.log" bs=1m count=6 2>/dev/null
@@ -270,6 +328,9 @@ test_stop_unloads_service_and_kills_verified_listener
 test_stop_refuses_foreign_listener
 test_install_agent_expands_home_token
 test_install_rewrites_ppds_filter_path
+test_install_prefers_bundled_runtime_binaries
+test_install_falls_back_to_homebrew_and_gp
+test_install_ignores_non_executable_bundled_binaries
 test_rotates_oversized_server_log
 test_desktop_command_delegates_to_single_owner_controller
 test_launchagent_runtime_is_outside_downloads

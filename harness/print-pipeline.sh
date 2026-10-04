@@ -14,6 +14,9 @@ if [ ! -f "$PPD" ]; then
 fi
 DEVURI="${PRINTSERVER_DEVICE_URI:-usb://Canon/G2010%20series?serial=0C7A8F}"
 GP_FILTER="$HOME/gp/cupsexec/filter/rastertogutenprint.5.3"
+# Installer rewrites this when bundled Gutenprint XML is present (DMG layout).
+STP_DATA_PATH=""
+[ -n "$STP_DATA_PATH" ] && export STP_DATA_PATH
 
 jobid="${1:-}"; user="${2:-}"; title="${3:-}"; copies="${4:-1}"; opts="${5:-}"; shift 5 2>/dev/null || true
 pdf="${1:-}"

@@ -21,7 +21,9 @@ export TMPDIR="${TMPDIR:-/tmp}"
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
-exec /opt/homebrew/opt/cups/bin/ippeveprinter \
+# Quoted: installers substitute this path with the runtime's own
+# bin/ippeveprinter, which lives under "Application Support" (has a space).
+exec "/opt/homebrew/opt/cups/bin/ippeveprinter" \
   -p 8632 \
   -c "$SCRIPT_DIR/print-pipeline.sh" \
   -d "$SCRIPT_DIR/spool" \

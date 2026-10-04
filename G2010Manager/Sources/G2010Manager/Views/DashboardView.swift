@@ -1,99 +1,72 @@
 import SwiftUI
 import G2010ManagerCore
 
-enum SidebarItem: String, Hashable, CaseIterable {
-    case dashboard = "Dashboard"
-    case printServer = "Print Server"
-    case scan = "Scan"
-    case jobs = "Jobs"
-    case maintenance = "Maintenance"
-    case troubleshoot = "Troubleshoot"
-    
-    var icon: String {
-        switch self {
-        case .dashboard: return "square.grid.2x2"
-        case .printServer: return "server.rack"
-        case .scan: return "scanner"
-        case .jobs: return "list.bullet.rectangle"
-        case .maintenance: return "wrench.and.screwdriver"
-        case .troubleshoot: return "stethoscope"
-        }
-    }
-}
-
 struct DashboardView: View {
     @Environment(AppState.self) private var appState
-    @State private var selection: SidebarItem? = .dashboard
+    @Environment(AppCoordinator.self) private var coordinator
     
     var body: some View {
+        @Bindable var coord = coordinator
         NavigationSplitView {
-            List(selection: $selection) {
+            List(selection: $coord.selectedSidebarItem) {
                 ForEach(SidebarItem.allCases, id: \.self) { item in
                     Label(item.rawValue, systemImage: item.icon)
+                        .tag(item)
                 }
             }
             .navigationTitle("Menu")
         } detail: {
-            if let selection {
-                switch selection {
-                case .dashboard: DashboardPanel()
-                case .printServer: PrintServerPanel()
-                case .scan: ScanPanel()
-                case .jobs: JobsPanel()
-                case .maintenance: MaintenancePanel()
-                case .troubleshoot: TroubleshootPanel()
-                }
-            } else {
-                Text("Select an item")
+            switch coordinator.selectedSidebarItem {
+            case .dashboard: DashboardPanel(viewModel: DashboardViewModel(appState: appState))
+            case .printServer: PrintServerPanel(viewModel: PrintServerViewModel(appState: appState))
+            case .scan: ScanPanel(viewModel: ScanViewModel(appState: appState))
+            case .jobs: JobsPanel(viewModel: JobsViewModel(appState: appState))
+            case .maintenance: MaintenancePanel(viewModel: MaintenanceViewModel(appState: appState))
+            case .troubleshoot: TroubleshootPanel(viewModel: TroubleshootViewModel(appState: appState))
             }
         }
     }
 }
 
 struct DashboardPanel: View {
-    @Environment(AppState.self) private var appState
-    @State private var isRestarting = false
-    
+    @Bindable var viewModel: DashboardViewModel
     let columns = [GridItem(.adaptive(minimum: 250))]
     
     var body: some View {
+        let appState = viewModel.appState
         ScrollView {
             VStack(spacing: 16) {
                 ErrorBanner()
                 
                 LazyVGrid(columns: columns, spacing: 16) {
-                GroupBox("Server Status") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        StatusBadge(title: appState.serverStatus.label, statusColor: appState.serverStatus.color, icon: appState.serverStatus.icon)
-                        ActionButton(title: "Restart", icon: "arrow.clockwise", isLoading: isRestarting) {
-                            Task {
-                                isRestarting = true
-                                await appState.perform("Restart") {
-                                    try await appState.printServer.restart()
+                    GroupBox("Server Status") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            StatusBadge(title: appState.serverStatus.label, statusColor: appState.serverStatus.color, icon: appState.serverStatus.icon)
+                            ActionButton(title: "Restart", icon: "arrow.clockwise", isLoading: viewModel.isRestarting) {
+                                Task {
+                                    await viewModel.restartServer()
                                 }
-                                isRestarting = false
                             }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                
-                GroupBox("Print Queue") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        StatusBadge(title: appState.queueStatus, statusColor: appState.queueEnabled ? .green : .gray, icon: "printer")
-                        Text("\(appState.activeJobs.count) Active Jobs")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+                    
+                    GroupBox("Print Queue") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            StatusBadge(title: appState.queueStatus, statusColor: appState.queueEnabled ? .green : .gray, icon: "printer")
+                            Text("\(appState.activeJobs.count) Active Jobs")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                
-                GroupBox("Scanner") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        StatusBadge(title: appState.scannerAvailable ? "Available" : "Unavailable", statusColor: appState.scannerAvailable ? .green : .gray, icon: "scanner")
+                    
+                    GroupBox("Scanner") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            StatusBadge(title: appState.scannerAvailable ? "Available" : "Unavailable", statusColor: appState.scannerAvailable ? .green : .gray, icon: "scanner")
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
                 }
             }
             .padding()

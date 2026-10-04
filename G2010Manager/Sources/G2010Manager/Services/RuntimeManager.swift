@@ -1,6 +1,6 @@
 import Foundation
 
-public final class RuntimeManager: Sendable {
+public final class RuntimeManager: RuntimeManaging, Sendable {
     public static let shared = RuntimeManager()
     
     public let agentLabel = RuntimeConstants.agentLabel
@@ -98,6 +98,11 @@ public final class RuntimeManager: Sendable {
             try copyDirectoryContents(from: bundleRuntime, to: appSupportDir)
         }
         
+        // Make bundled binaries executable BEFORE path selection: the
+        // preference rule (shared with printserver-control.sh) only picks
+        // bin/ippeveprinter / bin/rastertogutenprint.5.3 when executable.
+        setExecutablePermissions(at: binDir)
+
         // Install the live runtime from the SINGLE tested source of truth:
         // the checked-in harness/launchd/G2010_gutenprint files (via the DMG
         // bundle's runtime/source/, or the repo checkout in dev). Only
@@ -114,7 +119,6 @@ public final class RuntimeManager: Sendable {
         removeLegacyGeneratedScripts()
         
         // Ensure executables have +x permissions
-        setExecutablePermissions(at: binDir)
         setExecutablePermissions(at: scriptsDir)
         // The launcher + pipeline now live at the runtime root (Gen-1 flat
         // layout, so their $SCRIPT_DIR-relative references resolve); chmod
@@ -223,8 +227,8 @@ public final class RuntimeManager: Sendable {
     /// root (Gen-1 flat layout, same as printserver-control.sh installs).
     private func installLauncherFromSource() throws {
         var text = try readRuntimeSource(named: "start-printserver.sh", repoSubpath: "harness/start-printserver.sh")
-        let ippeve = fmSafeExecutablePath(ippeveprinterURL.path, fallback: "/opt/homebrew/opt/cups/bin/ippeveprinter")
-        text = try substituteInstallPrefix(text, template: "/opt/homebrew/opt/cups/bin/ippeveprinter", installed: ippeve, file: "start-printserver.sh")
+        let ippeve = preferredIppeveprinterPath
+        text = try substituteInstallPrefix(text, template: Self.ippeveprinterFallbackPath, installed: ippeve, file: "start-printserver.sh")
         try text.write(to: startPrintServerScriptURL, atomically: true, encoding: .utf8)
     }
 
@@ -234,13 +238,18 @@ public final class RuntimeManager: Sendable {
     /// last) — this installer must not reinterpret argv, only paths.
     private func installPipelineFromSource() throws {
         var text = try readRuntimeSource(named: "print-pipeline.sh", repoSubpath: "harness/print-pipeline.sh")
-        let filter = fmSafeExecutablePath(rastertogutenprintURL.path, fallback: "\(NSHomeDirectory())/gp/cupsexec/filter/rastertogutenprint.5.3")
+        let filter = preferredGutenprintFilterPath
         text = try substituteInstallPrefix(text, template: "GP_FILTER=\"$HOME/gp/cupsexec/filter/rastertogutenprint.5.3\"", installed: "GP_FILTER=\"\(filter)\"", file: "print-pipeline.sh")
         text = try substituteInstallPrefix(text, template: "PPD=\"$SCRIPT_DIR/stp-bjc-G2000-series.5.3.ppd\"", installed: "PPD=\"\(ppdFileURL.path)\"", file: "print-pipeline.sh")
-        // NOTE (DMG smoke test, FR-010): the relocated bundle filter may need
-        // STP_DATA_PATH pointed at the bundled XML dir; the harness path never
-        // sets it (compiled prefix suffices there). Do not guess here — verify
-        // on a clean machine first, then wire it as a conditional substitution.
+        var isXMLDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: gutenprintXMLDirURL.path, isDirectory: &isXMLDir), isXMLDir.boolValue {
+            text = try substituteInstallPrefix(
+                text,
+                template: "STP_DATA_PATH=\"\"",
+                installed: "STP_DATA_PATH=\"\(gutenprintXMLDirURL.path)\"",
+                file: "print-pipeline.sh"
+            )
+        }
         try text.write(to: printPipelineScriptURL, atomically: true, encoding: .utf8)
     }
 
@@ -271,32 +280,56 @@ public final class RuntimeManager: Sendable {
         setPosixPermissions(0o755, at: controllerURL)
     }
     
-    private func generatePPD() throws {
-        // Read bundled or existing PPD template (pristine source/ first)
-        let sourcePPD = bundledSourceDirURL?.appendingPathComponent("stp-bjc-G2000-series.5.3.ppd")
-        let bundlePPD = bundledRuntimeURL?.appendingPathComponent("ppd/stp-bjc-G2000-series.5.3.ppd")
-        let fallbackPPD = try repoRootURL().appendingPathComponent("G2010_gutenprint/stp-bjc-G2000-series.5.3.ppd")
-        
-        let sourceURL: URL
-        if let sourcePPD = sourcePPD, FileManager.default.fileExists(atPath: sourcePPD.path) {
-            sourceURL = sourcePPD
-        } else if let bundlePPD = bundlePPD, FileManager.default.fileExists(atPath: bundlePPD.path) {
-            sourceURL = bundlePPD
-        } else if FileManager.default.fileExists(atPath: fallbackPPD.path) {
-            sourceURL = fallbackPPD
-        } else if FileManager.default.fileExists(atPath: ppdFileURL.path) {
-            sourceURL = ppdFileURL
-        } else {
-            return
+    /// Pick the PPD template to install. Order: bundled runtime/source/ →
+    /// bundled runtime/ppd/ → repo checkout → previously installed PPD.
+    /// The repo root is resolved LAZILY: packaged (DMG) installs never set
+    /// G2010_REPO_ROOT, so it must only be consulted after the bundled
+    /// candidates miss. A repo-root error is rethrown only when no candidate
+    /// at all exists. Internal + static so unit tests can drive it with
+    /// temp directories via @testable import.
+    static func selectPPDSource(
+        bundledSourceDir: URL?,
+        bundledRuntimeDir: URL?,
+        installedPPD: URL,
+        repoRoot: () throws -> URL
+    ) throws -> URL? {
+        let fm = FileManager.default
+        let name = "stp-bjc-G2000-series.5.3.ppd"
+        if let url = bundledSourceDir?.appendingPathComponent(name), fm.fileExists(atPath: url.path) {
+            return url
         }
+        if let url = bundledRuntimeDir?.appendingPathComponent("ppd/\(name)"), fm.fileExists(atPath: url.path) {
+            return url
+        }
+        var repoError: Error?
+        do {
+            let url = try repoRoot().appendingPathComponent("G2010_gutenprint/\(name)")
+            if fm.fileExists(atPath: url.path) { return url }
+        } catch {
+            repoError = error
+        }
+        if fm.fileExists(atPath: installedPPD.path) {
+            return installedPPD
+        }
+        if let repoError { throw repoError }
+        return nil
+    }
+
+    private func generatePPD() throws {
+        guard let sourceURL = try Self.selectPPDSource(
+            bundledSourceDir: bundledSourceDirURL,
+            bundledRuntimeDir: bundledRuntimeURL,
+            installedPPD: ppdFileURL,
+            repoRoot: { try repoRootURL() }
+        ) else { return }
         
         var ppdText = try String(contentsOf: sourceURL, encoding: .utf8)
-        let filterPath = fmSafeExecutablePath(rastertogutenprintURL.path, fallback: "\(NSHomeDirectory())/gp/cupsexec/filter/rastertogutenprint.5.3")
+        let filterPath = preferredGutenprintFilterPath
         
         // Ensure cupsFilter line points to our filter
         if let regex = try? NSRegularExpression(pattern: #"\*cupsFilter:\s*"application/vnd\.cups-raster\s+100\s+[^"]*""#) {
             let range = NSRange(ppdText.startIndex..<ppdText.endIndex, in: ppdText)
-            ppdText = regex.stringByReplacingMatches(in: ppdText, options: [], range: range, withTemplate: "*cupsFilter: \"application/vnd.cups-raster 100 \(filterPath)\"")
+            ppdText = regex.stringByReplacingMatches(in: ppdText, options: [], range: range, withTemplate: NSRegularExpression.escapedTemplate(for: "*cupsFilter: \"application/vnd.cups-raster 100 \(filterPath)\""))
         }
         
         try ppdText.write(to: ppdFileURL, atomically: true, encoding: .utf8)
@@ -329,10 +362,29 @@ public final class RuntimeManager: Sendable {
         }
     }
     
-    private func fmSafeExecutablePath(_ primary: String, fallback: String) -> String {
-        if FileManager.default.fileExists(atPath: primary) {
-            return primary
-        }
-        return fallback
+    // MARK: - Binary path preference (single owner)
+    //
+    // MUST match printserver-control.sh runtime_ippeveprinter /
+    // runtime_gp_filter: the runtime's own bin/ copy wins when executable
+    // (DMG layout, no Homebrew at runtime); Homebrew CUPS and the ~/gp
+    // Gutenprint build are dev-checkout fallbacks. Diverging here would make
+    // the app's install and the controller's restart reinstall fight.
+
+    static let ippeveprinterFallbackPath = "/opt/homebrew/opt/cups/bin/ippeveprinter"
+    static var gutenprintFilterFallbackPath: String {
+        "\(NSHomeDirectory())/gp/cupsexec/filter/rastertogutenprint.5.3"
+    }
+
+    /// Pure preference rule (unit-tested): bundled when executable, else fallback.
+    static func preferredExecutablePath(_ bundled: String, fallback: String) -> String {
+        FileManager.default.isExecutableFile(atPath: bundled) ? bundled : fallback
+    }
+
+    var preferredIppeveprinterPath: String {
+        Self.preferredExecutablePath(ippeveprinterURL.path, fallback: Self.ippeveprinterFallbackPath)
+    }
+
+    var preferredGutenprintFilterPath: String {
+        Self.preferredExecutablePath(rastertogutenprintURL.path, fallback: Self.gutenprintFilterFallbackPath)
     }
 }
